@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The parent Projects folder contains its own lockfile. Keep this app's
+  // Turbopack resolver and file watcher rooted in this repository.
+  turbopack: {
+    root: process.cwd(),
+  },
   experimental: {
     // Dahua attendance imports send the parsed-row arrays to server actions;
     // a full month of biometric punches can exceed the 1MB default. The raw

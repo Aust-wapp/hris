@@ -31,6 +31,9 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeAreaName } from "../../src/lib/job-order-helpers.ts";
 
 const PROJECT_DIR = fileURLToPath(new URL("../..", import.meta.url));
+const SUPABASE_CLI_PATH = fileURLToPath(
+  new URL("../../node_modules/supabase/dist/supabase.js", import.meta.url),
+);
 const status = JSON.parse(
   execSync("npx supabase status -o json", {
     cwd: PROJECT_DIR,
@@ -78,10 +81,14 @@ async function makeArea(name: string, isActive = true) {
 // (a devDependency already used for `supabase status`), bypassing PostgREST.
 // Only ever used against `--local` — never point this at a remote project.
 function runSqlLocal(sql: string) {
-  execFileSync("npx", ["supabase", "db", "query", "--local", sql], {
-    cwd: PROJECT_DIR,
-    stdio: "pipe",
-  });
+  execFileSync(
+    process.execPath,
+    [SUPABASE_CLI_PATH, "db", "query", "--local", sql],
+    {
+      cwd: PROJECT_DIR,
+      stdio: "pipe",
+    },
+  );
 }
 
 test.after(async () => {

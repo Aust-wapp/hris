@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeRoles } from "@/lib/auth-helpers";
+import { redirect } from "next/navigation";
+import { hasRole, normalizeRoles } from "@/lib/auth-helpers";
 import type { UserRole } from "@/lib/types";
 
 export interface ServerUser {
@@ -65,4 +66,16 @@ export async function getServerUser(): Promise<ServerUser | null> {
     canManageModulePayroll: profile.can_manage_module_payroll ?? true,
     avatarUrl: profile.avatar_url,
   };
+}
+
+export async function requireAuthenticatedUser(): Promise<ServerUser> {
+  const user = await getServerUser();
+  if (!user) redirect("/login");
+  return user;
+}
+
+export async function requireSuperAdmin(): Promise<ServerUser> {
+  const user = await requireAuthenticatedUser();
+  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
+  return user;
 }

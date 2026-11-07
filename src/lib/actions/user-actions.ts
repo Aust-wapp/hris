@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAuthenticatedUser, requireSuperAdmin } from "@/lib/auth";
 import { ROLE_PRECEDENCE, hasAnyRole, isDeptAdmin } from "@/lib/auth-helpers";
+import { logAudit } from "@/lib/audit";
 import type { UserRole } from "@/lib/types";
 
 export interface CreateUserInput {
@@ -70,6 +72,8 @@ export interface UpdateUserInput extends CreateUserInput {
 }
 
 export async function getUsers() {
+  await requireSuperAdmin();
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
@@ -83,6 +87,8 @@ export async function getUsers() {
 }
 
 export async function getUserById(id: string) {
+  await requireSuperAdmin();
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
@@ -97,6 +103,8 @@ export async function getUserById(id: string) {
 }
 
 export async function getDepartments() {
+  await requireAuthenticatedUser();
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
@@ -110,6 +118,7 @@ export async function getDepartments() {
 }
 
 export async function createUser(input: CreateUserInput) {
+  const actor = await requireSuperAdmin();
   const roles = normalizeRoleSelection(input.roles);
   if (!roles) return { error: "Select at least one role." };
   if (roles.includes("super_admin")) {
@@ -142,11 +151,27 @@ export async function createUser(input: CreateUserInput) {
     return { error: error.message };
   }
 
+  await logAudit({
+    userId: actor.id,
+    userEmail: actor.email,
+    action: "create",
+    tableName: "user_profiles",
+    recordId: data.id,
+    newValues: {
+      email: data.email,
+      full_name: data.full_name,
+      roles: data.roles,
+      department_id: data.department_id,
+      is_active: data.is_active,
+    },
+  });
+
   revalidatePath("/admin/users");
   return { data };
 }
 
 export async function updateUser(input: UpdateUserInput) {
+  const actor = await requireSuperAdmin();
   const roles = normalizeRoleSelection(input.roles);
   if (!roles) return { error: "Select at least one role." };
   if (roles.includes("super_admin")) {
@@ -159,7 +184,7 @@ export async function updateUser(input: UpdateUserInput) {
   const { data: existing } = await supabase
     .schema("hris")
     .from("user_profiles")
-    .select("roles")
+    .select("email, full_name, roles, department_id, is_active")
     .eq("id", input.id)
     .single();
 
@@ -191,20 +216,39 @@ export async function updateUser(input: UpdateUserInput) {
     return { error: error.message };
   }
 
+  await logAudit({
+    userId: actor.id,
+    userEmail: actor.email,
+    action: "update",
+    tableName: "user_profiles",
+    recordId: data.id,
+    oldValues: existing,
+    newValues: {
+      email: data.email,
+      full_name: data.full_name,
+      roles: data.roles,
+      department_id: data.department_id,
+      is_active: data.is_active,
+    },
+  });
+
   revalidatePath("/admin/users");
   return { data };
 }
 
 export async function deactivateUser(id: string) {
+  const actor = await requireSuperAdmin();
   const supabase = createAdminClient();
 
   // Prevent deactivating the super admin
   const { data: existing } = await supabase
     .schema("hris")
     .from("user_profiles")
-    .select("roles")
+    .select("email, roles, is_active")
     .eq("id", id)
     .single();
+
+  if (!existing) return { error: "User not found." };
 
   if (existing?.roles?.includes("super_admin")) {
     return { error: "The super admin account cannot be deactivated." };
@@ -217,6 +261,16 @@ export async function deactivateUser(id: string) {
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  await logAudit({
+    userId: actor.id,
+    userEmail: actor.email,
+    action: "deactivate",
+    tableName: "user_profiles",
+    recordId: id,
+    oldValues: existing,
+    newValues: { is_active: false },
+  });
 
   revalidatePath("/admin/users");
   return { success: true };

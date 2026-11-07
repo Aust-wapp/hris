@@ -1,189 +1,219 @@
-# Running the HRIS on Windows
+# HRIS local development on Windows
 
-These steps get the app running on your Windows PC with its own **local** database.
-You never connect to the real (production) database. Everything stays on your machine.
+This guide runs HRIS against its own local Supabase project in Docker. The Supabase project ID is **hris**; its database container and volume are separate from MTOP and other local projects. Never point this setup at the hosted HRIS project.
 
-Plan for about 30 minutes the first time, mostly downloads.
+## Prerequisites
 
----
+- Git for Windows.
+- Node.js 22. The repository pins major version 22 in **.nvmrc**.
+- Docker Desktop with its WSL 2 backend and at least 4 GiB of memory available.
+- PowerShell.
 
-## Step 1 — Install the tools (one time only)
+Check the tools:
 
-Install these three programs. Accept the default options in each installer.
-
-1. **Git**: https://git-scm.com/download/win
-2. **Node.js 22 LTS**: https://nodejs.org. Pick the **22.x** version.
-3. **Docker Desktop**: https://www.docker.com/products/docker-desktop
-   - If the installer asks, leave **"Use WSL 2"** checked.
-   - Restart your PC when it tells you to.
-   - Open Docker Desktop once and wait until it says **"Engine running"**.
-
-To confirm, open **PowerShell** (Start menu → type `PowerShell`) and run:
-
-```powershell
+~~~powershell
+node --version
+npm --version
 git --version
-node --version     # should start with v22
-docker --version
-```
+docker version
+wsl --list --verbose
+~~~
 
-If all three print a version number, you're ready.
+For this Windows setup, Node.js 22.23.3 is installed in the user profile. In each new PowerShell window, activate it before running project commands:
 
----
+~~~powershell
+$nodeHome = Join-Path $env:LOCALAPPDATA 'hris-runtime\node-v22.23.3-win-x64'
+$env:PATH = "$nodeHome;$env:PATH"
+node --version
+npm --version
+~~~
 
-## Step 2 — Get the code
+If setting up another computer, install Node.js 22 LTS or use nvm-windows and run **nvm use** in the repository.
 
-In PowerShell:
+## Install the project
 
-```powershell
-cd $HOME\Documents
-git clone https://github.com/<your-username>/<your-fork>.git hris
-cd hris
-npm install
-```
+If the repository is not already checked out:
 
-Use the URL of **your fork**, not the original repo.
+~~~powershell
+Set-Location "$HOME\Documents\Projects"
+git clone https://github.com/Aust-wapp/hris.git
+Set-Location .\hris
+~~~
 
-> Keep the project **out of OneDrive** (for example, not in a OneDrive-synced
-> Documents folder). OneDrive syncing makes `npm install` and the app very slow.
-> `C:\dev\hris` is a safe choice.
+Install exactly the versions in the lockfile:
 
----
+~~~powershell
+npm ci
+~~~
 
-## Step 3 — Start the local database
+The Supabase CLI is installed as a project dependency; a global CLI install is not needed.
 
-Make sure **Docker Desktop is open and running**, then:
+## Start the isolated database and configure the app
 
-```powershell
+Confirm Docker is running, then start the HRIS stack:
+
+~~~powershell
 npm run db:start
+~~~
+
+The first start downloads the service images. On a new database, Supabase applies the migrations and **supabase/seed.sql**. The database is named **supabase_db_hris** and uses the **supabase_db_hris** Docker volume.
+
+Create **.env.development.local** from the local CLI status without printing keys in the terminal:
+
+~~~powershell
+$nodeHome = Join-Path $env:LOCALAPPDATA 'hris-runtime\node-v22.23.3-win-x64'
+$env:PATH = "$nodeHome;$env:PATH"
+$envPath = Join-Path (Get-Location) '.env.development.local'
+if (Test-Path -LiteralPath $envPath) {
+  throw 'Refusing to overwrite an existing .env.development.local.'
+}
+
+$statusLines = & .\node_modules\.bin\supabase.cmd status --output env
+if ($LASTEXITCODE -ne 0) {
+  throw 'Could not read local Supabase status.'
+}
+
+$status = @{}
+foreach ($line in $statusLines) {
+  $match = [regex]::Match([string]$line, '^\s*([A-Z_]+)\s*=\s*(.*?)\s*$')
+  if ($match.Success) {
+    $status[$match.Groups[1].Value] = $match.Groups[2].Value.Trim('"')
+  }
+}
+
+if ($status['API_URL'] -ne 'http://127.0.0.1:54421') {
+  throw 'The API URL does not match the HRIS local configuration.'
+}
+foreach ($name in @('ANON_KEY', 'SERVICE_ROLE_KEY')) {
+  if ([string]::IsNullOrWhiteSpace($status[$name])) {
+    throw "Local Supabase status omitted $name."
+  }
+}
+
+$envContents = @(
+  '# Local development only. Do not put hosted credentials here.'
+  "NEXT_PUBLIC_SUPABASE_URL=$($status['API_URL'])"
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY=$($status['ANON_KEY'])"
+  "NEXT_PUBLIC_SERVICE_ROLE_KEY=$($status['SERVICE_ROLE_KEY'])"
+  'DEV_LOGIN_PASSWORD=localdev'
+)
+[System.IO.File]::WriteAllText(
+  (Join-Path (Get-Location) '.env.development.local'),
+  ($envContents -join [Environment]::NewLine) + [Environment]::NewLine,
+  [System.Text.UTF8Encoding]::new($false)
+)
+~~~
+
+The file is gitignored. **NEXT_PUBLIC_SERVICE_ROLE_KEY** is read only by server-side code despite its name; never put it in client code. Do not create **.env.local**: this repository reserves that filename for a developer's hosted production credentials.
+
+## Ports
+
+| Service | Port | Notes |
+| --- | ---: | --- |
+| Next.js app | 3001 | Port 3000 was already occupied on this PC |
+| Supabase API and Auth | 54421 | Local API URL is **http://127.0.0.1:54421** |
+| PostgreSQL | 54422 | Local database only |
+| Database shadow instance | 54420 | Used by migration tooling |
+| Studio | 54423 | Disabled in **supabase/config.toml** |
+| Local SMTP | 54424 | Disabled in **supabase/config.toml** |
+
+Auth's local site URL and redirect allow-list are configured for ports 3001 on **localhost** and **127.0.0.1**. MTOP uses ports 54321–54324. Do not stop all Supabase projects to resolve a port conflict.
+
+## Sign in locally
+
+Google OAuth is not configured for localhost. Use the local-only development login page:
+
+~~~text
+http://localhost:3001/api/auth/dev-login
+~~~
+
+The seeded accounts all use password **localdev**:
+
+| Email | Role |
+| --- | --- |
+| archive-user001@example.invalid | super_admin |
+| archive-user001@example.invalid | hr_admin |
+| archive-user001@example.invalid | department_head |
+| archive-user001@example.invalid | employee |
+
+The dev-login route only operates when the configured Supabase URL is a loopback address and **DEV_LOGIN_PASSWORD** is set. The normal login page's Google button requires OAuth credentials and is not the local sign-in path.
+
+## Start and stop HRIS
+
+In a PowerShell window, activate Node 22, then run:
+
+~~~powershell
+$nodeHome = Join-Path $env:LOCALAPPDATA 'hris-runtime\node-v22.23.3-win-x64'
+$env:PATH = "$nodeHome;$env:PATH"
+npm run db:start
+npm run dev -- --port 3001
+~~~
+
+Open **http://localhost:3001**. Stop the app with Ctrl+C. To stop only the HRIS Supabase services while keeping their volume and data:
+
+~~~powershell
+npm run db:stop
+~~~
+
+Do not use **supabase stop --all**; it can stop unrelated local projects.
+
+## Migrations, seeds, and checks
+
+Create a migration using the project script:
+
+~~~powershell
+npm run db:new descriptive_name
+~~~
+
+Review the SQL, then rebuild the **local HRIS database** with all migrations and seed data:
+
+~~~powershell
 npm run db:reset
-```
+~~~
 
-- `db:start` downloads the database images. The **first time takes several minutes**.
-- `db:reset` builds all the tables and adds sample data and login accounts.
+**db:reset** deletes and recreates the local HRIS database contents. It does not target MTOP or the hosted project. Never run **supabase link**, **supabase db push**, or **supabase db reset --linked**.
 
-When it finishes you should see `Finished supabase db reset`.
+Available checks:
 
----
-
-## Step 4 — Create your settings file
-
-```powershell
-copy .env.example .env.development.local
-npx supabase status
-```
-
-`supabase status` prints a list of values. Find **`ANON_KEY`** and
-**`SERVICE_ROLE_KEY`** and copy them.
-
-Open the settings file in Notepad:
-
-```powershell
-notepad .env.development.local
-```
-
-Paste the two keys after the `=` signs, so it looks like this:
-
-```
-NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54421
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...(the ANON_KEY you copied)
-NEXT_PUBLIC_SERVICE_ROLE_KEY=eyJhbGci...(the SERVICE_ROLE_KEY you copied)
-DEV_LOGIN_PASSWORD=localdev
-```
-
-Save and close Notepad.
-
----
-
-## Step 5 — Run the app
-
-```powershell
-npm run dev
-```
-
-Wait until it says **Ready**, then open this in your browser:
-
-### 👉 http://localhost:3000/api/auth/dev-login
-
-Click an account to sign in as that user:
-
-| Account               | What it can do      |
-| --------------------- | ------------------- |
-| `admin@lgu.gov.ph`    | Everything (super admin) |
-| `hr@lgu.gov.ph`       | HR admin            |
-| `depthead@lgu.gov.ph` | Department head     |
-| `employee@lgu.gov.ph` | Regular employee    |
-
-(The **Sign in with Google** button doesn't work locally. Always use the link above.)
-
----
-
-## Every day after that
-
-1. Open **Docker Desktop** and wait for "Engine running".
-2. In PowerShell, from the project folder:
-
-   ```powershell
-   npm run db:start
-   npm run dev
-   ```
-
-3. Go to http://localhost:3000/api/auth/dev-login
-
-When you're done, press `Ctrl + C` in PowerShell to stop the app, then run
-`npm run db:stop`.
-
-**Messed up your local data?** Run `npm run db:reset` to start fresh. It only
-affects your own PC.
-
----
-
-## If something goes wrong
-
-**"running scripts is disabled on this system"** when running `npm`.
-Run this once, then reopen PowerShell:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-**`db:start` says Docker isn't running / "cannot connect to the Docker daemon".**
-Open Docker Desktop and wait for "Engine running", then try again.
-
-**"port is already allocated" or "access permissions" on port 54421 / 54422.**
-Windows sometimes reserves these ports. Open PowerShell **as Administrator**
-(right-click → Run as administrator) and run:
-
-```powershell
-net stop winnat
-net start winnat
-```
-
-Then run `npm run db:start` again.
-
-**The dev-login page shows "Not found".**
-Check `.env.development.local`: the URL must be `http://127.0.0.1:54421` and
-`DEV_LOGIN_PASSWORD=localdev` must be there. Stop the app (`Ctrl + C`) and run
-`npm run dev` again. The app only reads this file when it starts.
-
-**"Invalid login credentials" when clicking an account.**
-Run `npm run db:reset` to recreate the login accounts.
-
-**The page loads but shows no data.**
-That's expected at first. The local database only has a few sample employees. Sign
-in as `admin@lgu.gov.ph` to add more.
-
-**Still stuck?** Copy the full error message from PowerShell and send it to the
-team lead.
-
----
-
-## Running the tests (optional)
-
-With the database running:
-
-```powershell
+~~~powershell
+npm run test:dtr
+npm run test:cos
+npm run test:db
+npm run test:cos-db
 npm test
-```
+npx tsc --noEmit
+npm run lint
+npm run build
+~~~
 
-You should see `fail 0` at the end of each section. A few tests show as
-**skipped**. That's normal: they need private data files that aren't in the repo.
+Database integration tests require the local stack to be running. On Windows, set the telemetry opt-out only for the test session because parallel test workers invoke the Supabase CLI:
+
+~~~powershell
+$env:SUPABASE_TELEMETRY_DISABLED = '1'
+npm test
+Remove-Item Env:SUPABASE_TELEMETRY_DISABLED
+~~~
+
+This does not change the CLI's saved telemetry preference. **npm test** runs the project's unit and database test scripts.
+
+## Troubleshooting
+
+- **Docker is unavailable:** Open Docker Desktop, wait for the engine to start, then check **docker version**.
+- **A port is occupied:** Inspect it before changing or stopping anything:
+
+  ~~~powershell
+  Get-NetTCPConnection -State Listen |
+    Where-Object { $_.LocalPort -in 54420,54421,54422,54423,54424 } |
+    Select-Object LocalAddress,LocalPort,OwningProcess
+  ~~~
+
+  Do not stop or remove MTOP containers or volumes. If HRIS ports need to change, update **supabase/config.toml**, **.env.development.local**, and this table together.
+- **The database does not appear isolated:** Check that **project_id = "hris"** in **supabase/config.toml** and inspect only the HRIS container:
+
+  ~~~powershell
+  docker ps --all --filter name=supabase_db_hris
+  docker inspect --format '{{.Name}} {{.State.Status}} {{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' supabase_db_hris
+  ~~~
+- **The dev-login route returns 404:** Check that **.env.development.local** points to **http://127.0.0.1:54421**, includes **DEV_LOGIN_PASSWORD**, and restart **npm run dev**.
+- **A seeded login fails:** Confirm **npm run db:reset** completed successfully for HRIS and that **DEV_LOGIN_PASSWORD=localdev** matches the seeded password.
+- **Queries return no rows:** HRIS tables live in the **hris** schema. Supabase client queries must use **.schema("hris")**.
