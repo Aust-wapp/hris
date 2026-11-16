@@ -17,6 +17,7 @@ import {
   indexEmployees,
   matchEmployee,
   minutesToDays,
+  parseExternalName,
   parseExternalUndertime,
   surnameKey,
   type ClassifyInput,
@@ -102,23 +103,68 @@ test("idNumberTail reads the zero-padded HRIS id_number", () => {
 });
 
 const emp = (o: Partial<EmployeeForMatch>): EmployeeForMatch => ({
-  id: "e1", last_name: "UY", first_name: "ROLLY", id_number: "CEO-0840",
+  id: "e1", last_name: "UY", first_name: "ROLLY", middle_name: null, id_number: "CEO-0840",
   employment_type: "plantilla", status: "active", status_effective_date: null, ...o,
 });
 
-test("matches on ID number AND surname, even when the office prefix differs", () => {
-  const byNum = indexEmployees([
-    emp({ id: "balcita", last_name: "BALCITA", id_number: "CADMO-0047" }),
-    emp({ id: "caay", last_name: "CAAY", id_number: "CTRSMO-0132" }),
-  ]);
-  const hit = matchEmployee({ idNumber: 47, surname: "BALCITA" }, byNum);
-  assert.equal(hit.kind, "matched");
-  assert.equal(hit.kind === "matched" && hit.employee.id, "balcita");
+test("parseExternalName handles the file's suffix and initial variants", () => {
+  const p = (s: string) => {
+    const { surname, firstWords, middleInitial } = parseExternalName(s);
+    return [surname, firstWords.join(" "), middleInitial];
+  };
+  assert.deepEqual(p("BELI-OT, LEYGIE S."), ["BELIOT", "LEYGIE", "S"]);
+  assert.deepEqual(p("GAZAL, JR., PAQUITO R."), ["GAZAL", "PAQUITO", "R"]);
+  assert.deepEqual(p("COBRADO, PATERNO JR. M."), ["COBRADO", "PATERNO", "M"]);
+  assert.deepEqual(p("ERQUITA JR., ERNESTO A."), ["ERQUITA", "ERNESTO", "A"]);
+  assert.deepEqual(p("TIGLEY, MARCELO ."), ["TIGLEY", "MARCELO", null]);
+  assert.deepEqual(p("YROGIROG, MARIA FLORELYN ."), ["YROGIROG", "MARIA FLORELYN", null]);
+  assert.deepEqual(p("LABAJO, MA. VICTORIA C."), ["LABAJO", "MA VICTORIA", "C"]);
+});
 
-  const wrong = matchEmployee({ idNumber: 132, surname: "FRASER" }, byNum);
-  assert.equal(wrong.kind, "surname_mismatch");
+const STAFF = indexEmployees([
+  emp({ id: "balcita", last_name: "BALCITA", first_name: "BENZENE", id_number: "CADMO-0047" }),
+  emp({ id: "caay", last_name: "CAAY", first_name: "MELCHOR", id_number: "CTRSMO-0132" }),
+  emp({ id: "fraser", last_name: "FRASER", first_name: "CHRISTINE", middle_name: "GARCIA", id_number: "CTRSMO-1326" }),
+  emp({ id: "bryan", last_name: "DELOS SANTOS", first_name: "BRYAN", middle_name: "SEBIAL", id_number: "CEO-1251" }),
+  emp({ id: "mark", last_name: "DELOS SANTOS", first_name: "MARK", middle_name: "ABING", id_number: "CEO-0981" }),
+  emp({ id: "castro", last_name: "CASTRO", first_name: "AIYA MARIE", middle_name: "ORONG", id_number: "CHO-1116" }),
+  emp({ id: "maria", last_name: "LABAJO", first_name: "MARIA VICTORIA", middle_name: "C", id_number: null }),
+  emp({ id: "twin1", last_name: "DELA CRUZ", first_name: "JUAN", middle_name: null, id_number: "X-1" }),
+  emp({ id: "twin2", last_name: "DELA CRUZ", first_name: "JUAN", middle_name: null, id_number: "X-2" }),
+]);
+const m = (idNumber: number, name: string) => matchEmployee({ idNumber, name }, STAFF);
+const hitOf = (r: ReturnType<typeof m>) => (r.kind === "matched" ? [r.employee.id, r.method] : [r.kind]);
 
-  assert.equal(matchEmployee({ idNumber: 9999, surname: "X" }, byNum).kind, "no_id");
+test("ID number + surname is the normal match, whatever the office prefix", () => {
+  assert.deepEqual(hitOf(m(47, "BALCITA, BENZENE L.")), ["balcita", "id"]);
+});
+
+test("a stale ID falls back to the full name", () => {
+  // CEO-1097 in the file is CEO-1251 in HRIS.
+  assert.deepEqual(hitOf(m(1097, "DELOS SANTOS, BRYAN S.")), ["bryan", "name"]);
+  // The file's ID belongs to someone else entirely.
+  assert.deepEqual(hitOf(m(132, "FRASER, CHRISTINE G.")), ["fraser", "name"]);
+  // No ID in HRIS at all; "MA." abbreviates "MARIA VICTORIA".
+  assert.deepEqual(hitOf(m(5555, "LABAJO, MA. VICTORIA C.")), ["maria", "name"]);
+});
+
+test("same ID and first name with a different surname is a surname change", () => {
+  assert.deepEqual(hitOf(m(1116, "PAQUIT, AIYA MARIE C.")), ["castro", "id_first"]);
+});
+
+test("a conflicting middle initial blocks a name match", () => {
+  assert.deepEqual(hitOf(m(1097, "DELOS SANTOS, BRYAN X.")), ["no_id"]);
+});
+
+test("two equally good name matches are ambiguous, never guessed", () => {
+  const r = m(9999, "DELA CRUZ, JUAN P.");
+  assert.equal(r.kind, "ambiguous");
+  assert.deepEqual(r.kind === "ambiguous" && r.candidates.map((c) => c.id).sort(), ["twin1", "twin2"]);
+});
+
+test("nothing found by ID or name", () => {
+  assert.deepEqual(hitOf(m(132, "NOBODY, AT ALL")), ["surname_mismatch"]);
+  assert.deepEqual(hitOf(m(9999, "NOBODY, AT ALL")), ["no_id"]);
 });
 
 const base: ClassifyInput = {

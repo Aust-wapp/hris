@@ -26,6 +26,7 @@ import {
   type ExternalCategory,
   type ExternalUndertimeRow,
   type HoldReason,
+  type MatchMethod,
 } from "@/lib/external-undertime";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -74,7 +75,9 @@ export interface ExternalPlanRow {
   hrisName: string | null;
   hrisIdNumber: string | null;
   employeeStatus: string | null;
-  /** For a surname mismatch: who holds that ID number in HRIS. */
+  /** How the employee was found; null when unmatched. See MatchMethod. */
+  matchMethod: MatchMethod | null;
+  /** Unmatched: who holds the file's ID number, or the same-name candidates. */
   idHolders: string | null;
   /** A previous import's row whose status HR set by hand — kept on re-import. */
   lockedStatus: "apply" | "hold" | "excluded" | null;
@@ -115,11 +118,12 @@ async function buildPlan(supabase: Admin, file: File): Promise<ExternalPlan> {
 
   const employees = await fetchAll<EmployeeForMatch>(() =>
     supabase.schema("hris").from("employees")
-      .select("id, last_name, first_name, id_number, employment_type, status, status_effective_date")
-      .not("id_number", "is", null)
+      // Every employee, with or without an id_number: the name fallback can
+      // find people the external file lists under a stale ID.
+      .select("id, last_name, first_name, middle_name, id_number, employment_type, status, status_effective_date")
       .order("id"),
   );
-  const byNum = indexEmployees(employees);
+  const index = indexEmployees(employees);
 
   const periods = parsed.rows.map((r) => r.year * 100 + r.month);
   const first = Math.min(...periods);
@@ -158,21 +162,29 @@ async function buildPlan(supabase: Admin, file: File): Promise<ExternalPlan> {
 
   // Collapse rows to one per (employee, month). Unmatched rows keep their own
   // entry, keyed by the external ID.
-  const groups = new Map<string, { rows: ExternalUndertimeRow[]; employee: EmployeeForMatch | null; idHolders: string | null }>();
+  const groups = new Map<string, {
+    rows: ExternalUndertimeRow[];
+    employee: EmployeeForMatch | null;
+    matchMethod: MatchMethod | null;
+    idHolders: string | null;
+  }>();
+  const describe = (cs: EmployeeForMatch[]) =>
+    cs.map((c) => `${c.last_name}, ${c.first_name} (${c.id_number ?? "no ID"})`).join(" / ");
   for (const r of parsed.rows) {
-    const m = matchEmployee(r, byNum);
+    const m = matchEmployee(r, index);
     const employee = m.kind === "matched" ? m.employee : null;
-    const idHolders = m.kind === "surname_mismatch"
-      ? m.candidates.map((c) => `${c.last_name}, ${c.first_name} (${c.id_number})`).join(" / ")
+    const idHolders =
+      m.kind === "surname_mismatch" ? `ID belongs to ${describe(m.candidates)}`
+      : m.kind === "ambiguous" ? `Same name: ${describe(m.candidates)}`
       : null;
     const k = employee ? key(employee.id, r.year, r.month) : `ext|${r.extId}|${r.year}|${r.month}|${r.sheetRow}`;
     const g = groups.get(k);
     if (g) g.rows.push(r);
-    else groups.set(k, { rows: [r], employee, idHolders });
+    else groups.set(k, { rows: [r], employee, matchMethod: m.kind === "matched" ? m.method : null, idHolders });
   }
 
   const rows: ExternalPlanRow[] = [];
-  for (const { rows: grp, employee, idHolders } of groups.values()) {
+  for (const { rows: grp, employee, matchMethod, idHolders } of groups.values()) {
     const r = grp[0];
     const minutes = grp.reduce((s, x) => s + x.minutes, 0);
     const overlapsApprovedLeave = employee
@@ -204,6 +216,7 @@ async function buildPlan(supabase: Admin, file: File): Promise<ExternalPlan> {
       hrisName: employee ? `${employee.last_name}, ${employee.first_name}` : null,
       hrisIdNumber: employee?.id_number ?? null,
       employeeStatus: employee?.status ?? null,
+      matchMethod,
       idHolders,
       lockedStatus: employee ? lockedByKey.get(key(employee.id, r.year, r.month)) ?? null : null,
     });

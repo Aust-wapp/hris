@@ -18,6 +18,7 @@ import {
   HOLD_REASON_LABELS,
   type ExternalCategory,
   type HoldReason,
+  type MatchMethod,
 } from "@/lib/external-undertime";
 import type {
   ExternalPlanRow,
@@ -30,6 +31,12 @@ export const MONTH_LABELS = [
 ];
 
 const fmtDays = (d: number) => parseFloat(d.toFixed(3)).toString();
+
+const MATCH_METHOD_LABELS: Record<MatchMethod, string> = {
+  id: "Matched by ID",
+  id_first: "Same ID & first name — surname changed",
+  name: "Matched by name — ID in file differs",
+};
 
 const inList = (row: { getValue: (id: string) => unknown }, id: string, value: string[]) =>
   value.includes(String(row.getValue(id)));
@@ -79,18 +86,23 @@ export const externalPlanColumns: ColumnDef<ExternalPlanRow>[] = [
       const r = row.original;
       if (r.hrisName) {
         return (
-          <div className="min-w-[160px]">
+          <div className="min-w-[160px] space-y-0.5">
             <p>{r.hrisName}</p>
             <p className="text-muted-foreground text-xs">
-              {r.hrisIdNumber}
+              {r.hrisIdNumber ?? "no ID"}
               {r.employeeStatus && r.employeeStatus !== "active" ? ` · ${r.employeeStatus}` : ""}
             </p>
+            {r.matchMethod && r.matchMethod !== "id" && (
+              <Badge variant="outline" className="text-[11px]">
+                {MATCH_METHOD_LABELS[r.matchMethod]}
+              </Badge>
+            )}
           </div>
         );
       }
       return (
         <span className="text-muted-foreground text-xs">
-          {r.idHolders ? `ID belongs to ${r.idHolders}` : "No employee with this ID"}
+          {r.idHolders ?? "No employee with this ID or name"}
         </span>
       );
     },

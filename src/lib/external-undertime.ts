@@ -144,38 +144,148 @@ export interface EmployeeForMatch {
   id: string;
   last_name: string;
   first_name: string;
+  middle_name: string | null;
   id_number: string | null;
   employment_type: string;
   status: string;
   status_effective_date: string | null;
 }
 
-/** Index HRIS employees by the numeric tail of id_number. */
-export function indexEmployees(emps: EmployeeForMatch[]): Map<number, EmployeeForMatch[]> {
-  const byNum = new Map<number, EmployeeForMatch[]>();
-  for (const e of emps) {
-    const n = idNumberTail(e.id_number);
-    if (n === null) continue;
-    byNum.set(n, [...(byNum.get(n) ?? []), e]);
-  }
-  return byNum;
+/** Letters-only, accent-free tokens; generational suffixes and stray dots dropped. */
+function nameTokens(s: string | null | undefined): string[] {
+  return (s ?? "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^A-Z]+/)
+    .filter((t) => t && !SUFFIXES.has(t));
 }
 
+export interface ParsedPersonName {
+  surname: string;
+  /** First name(s), letters only — "MARIA FLORELYN" -> "MARIAFLORELYN". */
+  first: string;
+  /** The same, word by word — ["MARIA", "FLORELYN"]. */
+  firstWords: string[];
+  /** Middle initial, or null when the name carries none. */
+  middleInitial: string | null;
+}
+
+/**
+ * Splits the external file's "LAST, FIRST [SUFFIX] M." into parts. Copes with
+ * the variants it actually contains: "GAZAL, JR., PAQUITO R.",
+ * "COBRADO, PATERNO JR. M.", "ERQUITA JR., ERNESTO A.", "TIGLEY, MARCELO .".
+ * A trailing single letter is the middle initial.
+ */
+export function parseExternalName(name: string): ParsedPersonName {
+  const [last, ...rest] = name.split(",");
+  const tokens = nameTokens(rest.join(" "));
+  let middleInitial: string | null = null;
+  if (tokens.length > 1 && tokens[tokens.length - 1].length === 1) {
+    middleInitial = tokens.pop()!;
+  }
+  return { surname: surnameKey(last), first: tokens.join(""), firstWords: tokens, middleInitial };
+}
+
+function hrisName(e: Pick<EmployeeForMatch, "last_name" | "first_name" | "middle_name">): ParsedPersonName {
+  const words = nameTokens(e.first_name);
+  return {
+    surname: surnameKey(e.last_name),
+    first: words.join(""),
+    firstWords: words,
+    middleInitial: nameTokens(e.middle_name)[0]?.charAt(0) ?? null,
+  };
+}
+
+/**
+ * How well two first names agree, word by word:
+ *   "exact"  — same letters ("MARIA FLORELYN" = "MARIA FLORELYN")
+ *   "prefix" — each word of the shorter name starts the matching word of the
+ *              longer, and the first word has at least 2 letters: "MA.
+ *              VICTORIA" = "MARIA VICTORIA", "LEYGIE" = "LEYGIE ANN"
+ *   null     — anything else
+ */
+function firstNameAgreement(a: string[], b: string[]): "exact" | "prefix" | null {
+  if (a.length === 0 || b.length === 0) return null;
+  if (a.join("") === b.join("")) return "exact";
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short[0].length < 2) return null;
+  const fits = short.every((w, i) => long[i].startsWith(w) || w.startsWith(long[i]));
+  return fits ? "prefix" : null;
+}
+
+export interface EmployeeIndex {
+  byNum: Map<number, EmployeeForMatch[]>;
+  bySurname: Map<string, EmployeeForMatch[]>;
+}
+
+/** Index HRIS employees by the numeric tail of id_number and by surname. */
+export function indexEmployees(emps: EmployeeForMatch[]): EmployeeIndex {
+  const byNum = new Map<number, EmployeeForMatch[]>();
+  const bySurname = new Map<string, EmployeeForMatch[]>();
+  for (const e of emps) {
+    const n = idNumberTail(e.id_number);
+    if (n !== null) byNum.set(n, [...(byNum.get(n) ?? []), e]);
+    const s = surnameKey(e.last_name);
+    if (s) bySurname.set(s, [...(bySurname.get(s) ?? []), e]);
+  }
+  return { byNum, bySurname };
+}
+
+/**
+ * How a row was matched:
+ *   id         — ID number and surname agree (the normal case)
+ *   id_first   — ID number, first name and (if both have one) middle initial
+ *                agree but the surname differs: a surname change, e.g. by
+ *                marriage
+ *   name       — the ID is wrong or missing; surname + first name (+ middle
+ *                initial) single out exactly one employee
+ */
+export type MatchMethod = "id" | "id_first" | "name";
+
 export type MatchResult =
-  | { kind: "matched"; employee: EmployeeForMatch }
+  | { kind: "matched"; employee: EmployeeForMatch; method: MatchMethod }
+  | { kind: "ambiguous"; candidates: EmployeeForMatch[] }
   | { kind: "surname_mismatch"; candidates: EmployeeForMatch[] }
   | { kind: "no_id" };
 
-/** An external row matches when the ID number AND the surname agree. */
+const initialsAgree = (a: string | null, b: string | null) => !a || !b || a === b;
+
+/**
+ * Matches an external row to one HRIS employee. The ID number is tried first;
+ * the external system's IDs are often stale (HRIS re-numbered people), so the
+ * full name is the fallback. A name match must be unique — two employees who
+ * fit equally well are reported as ambiguous, never guessed between, since
+ * the result is charged to someone's VL.
+ */
 export function matchEmployee(
-  row: Pick<ExternalUndertimeRow, "idNumber" | "surname">,
-  byNum: Map<number, EmployeeForMatch[]>,
+  row: Pick<ExternalUndertimeRow, "idNumber" | "name">,
+  index: EmployeeIndex,
 ): MatchResult {
-  const cands = byNum.get(row.idNumber) ?? [];
-  if (cands.length === 0) return { kind: "no_id" };
-  const key = surnameKey(row.surname);
-  const hit = cands.find((c) => surnameKey(c.last_name) === key);
-  return hit ? { kind: "matched", employee: hit } : { kind: "surname_mismatch", candidates: cands };
+  const ext = parseExternalName(row.name);
+  const idHolders = index.byNum.get(row.idNumber) ?? [];
+
+  const byId = idHolders.find((c) => surnameKey(c.last_name) === ext.surname);
+  if (byId) return { kind: "matched", employee: byId, method: "id" };
+
+  const renamed = idHolders.filter((c) => {
+    const h = hrisName(c);
+    return h.first === ext.first && h.first.length >= 2;
+  });
+  if (renamed.length === 1) return { kind: "matched", employee: renamed[0], method: "id_first" };
+
+  const sameSurname = (index.bySurname.get(ext.surname) ?? []).filter((c) =>
+    initialsAgree(ext.middleInitial, hrisName(c).middleInitial),
+  );
+  const agreement = (c: EmployeeForMatch) => firstNameAgreement(ext.firstWords, hrisName(c).firstWords);
+  const exact = sameSurname.filter((c) => agreement(c) === "exact");
+  const pool = exact.length > 0 ? exact : sameSurname.filter((c) => agreement(c) === "prefix");
+  if (pool.length === 1) return { kind: "matched", employee: pool[0], method: "name" };
+  if (pool.length > 1) return { kind: "ambiguous", candidates: pool };
+
+  return idHolders.length > 0
+    ? { kind: "surname_mismatch", candidates: idHolders }
+    : { kind: "no_id" };
 }
 
 export type ExternalCategory =

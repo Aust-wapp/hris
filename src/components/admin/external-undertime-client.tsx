@@ -70,7 +70,7 @@ const CATEGORY_HELP: Record<ExternalCategory, string> = {
   skip_hris_has_logs: "HRIS has biometrics that month; its own DTR is used.",
   skip_after_separation: "Months after the employee's separation date.",
   skip_not_plantilla: "Job order / COS staff have no leave credits.",
-  skip_unmatched: "Fix the employee's ID in HRIS, then re-import.",
+  skip_unmatched: "No unique employee by ID or full name. Fix the name or ID in HRIS, then re-import.",
 };
 
 export function ExternalUndertimeClient({
