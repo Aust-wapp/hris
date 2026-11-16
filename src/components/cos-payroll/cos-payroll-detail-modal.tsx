@@ -51,7 +51,31 @@ import {
   computeCosEwt,
   computeCosNetAmount,
 } from "@/lib/utils/cosPayrollAmount";
+import { ExportExcelButton } from "@/components/tables/export-excel-button";
+import type { XlsxColumn } from "@/lib/xlsx";
 import { CosPayrollEditEmployeeModal } from "./cos-payroll-edit-employee-modal";
+
+/** COS daily rate is the monthly salary spread over 22 working days. */
+const COS_WORKING_DAYS = 22;
+
+interface CosExportRow {
+  no: number;
+  emp: CosEmployeePayrollWithEmployee;
+}
+
+// Numbers, not formatted strings, so Excel can sum the columns.
+const EXPORT_COLUMNS: XlsxColumn<CosExportRow>[] = [
+  { header: "#", value: (r) => r.no },
+  { header: "Name", value: (r) => fmtName(r.emp.employees) },
+  { header: "Monthly Salary", value: (r) => r.emp.monthly_rate ?? null },
+  {
+    header: `Daily Salary (${COS_WORKING_DAYS} days)`,
+    value: (r) =>
+      r.emp.monthly_rate == null
+        ? null
+        : Math.round((r.emp.monthly_rate / COS_WORKING_DAYS) * 100) / 100,
+  },
+];
 
 interface Props {
   payroll: CosPayrollListRow | null;
@@ -205,6 +229,19 @@ export function CosPayrollDetailModal({
                 Add
               </Button>
             </div>
+          </div>
+
+          <div className="flex justify-end">
+            <ExportExcelButton
+              rows={employees.map((emp, i) => ({ no: i + 1, emp }))}
+              columns={EXPORT_COLUMNS}
+              filename={
+                meta
+                  ? `cos-payroll-${meta.period_start}-to-${meta.period_end}`
+                  : "cos-payroll"
+              }
+              sheetName="COS Payroll"
+            />
           </div>
 
           <div className="rounded-lg border">
