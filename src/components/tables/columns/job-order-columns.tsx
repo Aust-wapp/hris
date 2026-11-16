@@ -28,8 +28,9 @@ function fmtRate(n: number | null): string {
 
 export function jobOrderColumns(handlers: {
   onView: (employee: JobOrderEmployee) => void;
-  onEdit: (employee: JobOrderEmployee) => void;
-  onDelete: (employee: JobOrderEmployee) => void;
+  /** Omit for a read-only viewer (jo_viewer): the menu then shows View only. */
+  onEdit?: (employee: JobOrderEmployee) => void;
+  onDelete?: (employee: JobOrderEmployee) => void;
 }): ColumnDef<JobOrderEmployee>[] {
   return [
     {
@@ -45,17 +46,21 @@ export function jobOrderColumns(handlers: {
               <Eye className="h-4 w-4" />
               View details
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
-              <Pencil className="h-4 w-4" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => handlers.onDelete(row.original)}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
+            {handlers.onEdit && (
+              <DropdownMenuItem onClick={() => handlers.onEdit?.(row.original)}>
+                <Pencil className="h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+            )}
+            {handlers.onDelete && (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => handlers.onDelete?.(row.original)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),

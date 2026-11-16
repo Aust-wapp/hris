@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { getJobOrderSignatories } from "@/lib/actions/job-order-signatory-actions";
 import { JobOrderSignatoriesForm } from "@/components/job-orders/job-order-signatories-form";
 
 export default async function JobOrderSignatoriesPage() {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
+  if (!canViewJobOrders(user?.roles)) redirect("/dashboard");
 
   const signatories = await getJobOrderSignatories();
 
@@ -19,7 +19,10 @@ export default async function JobOrderSignatoriesPage() {
           orders, payroll, OBR and SSS contribution list.
         </p>
       </div>
-      <JobOrderSignatoriesForm signatories={signatories} />
+      <JobOrderSignatoriesForm
+        signatories={signatories}
+        canEdit={canManageJobOrders(user?.roles)}
+      />
     </div>
   );
 }

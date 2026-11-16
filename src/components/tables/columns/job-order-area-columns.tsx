@@ -14,11 +14,17 @@ import {
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import type { JobOrderArea } from "@/lib/types";
 
-export function jobOrderAreaColumns(handlers: {
-  onEdit: (area: JobOrderArea) => void;
-  onDelete: (area: JobOrderArea) => void;
-}): ColumnDef<JobOrderArea>[] {
-  return [
+/**
+ * Pass `null` for a read-only viewer (jo_viewer): the actions column, which
+ * holds only Edit and Delete, is then left out entirely.
+ */
+export function jobOrderAreaColumns(
+  handlers: {
+    onEdit: (area: JobOrderArea) => void;
+    onDelete: (area: JobOrderArea) => void;
+  } | null,
+): ColumnDef<JobOrderArea>[] {
+  const columns: ColumnDef<JobOrderArea>[] = [
     {
       id: "actions",
       cell: ({ row }) => (
@@ -28,13 +34,13 @@ export function jobOrderAreaColumns(handlers: {
             <span className="sr-only">Open menu</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
+            <DropdownMenuItem onClick={() => handlers?.onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               Edit
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => handlers.onDelete(row.original)}
+              onClick={() => handlers?.onDelete(row.original)}
             >
               <Trash2 className="h-4 w-4" />
               Delete
@@ -105,4 +111,5 @@ export function jobOrderAreaColumns(handlers: {
       ),
     },
   ];
+  return handlers ? columns : columns.filter((c) => c.id !== "actions");
 }

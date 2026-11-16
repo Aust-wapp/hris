@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canManageJobOrderPayroll,
-  canManageJobOrders,
+  canViewJobOrders,
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
@@ -102,7 +102,7 @@ export async function getJobOrderPayrolls(
   filters: JobOrderPayrollFilters = {},
 ): Promise<{ rows: JobOrderPayroll[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
+  if (!canViewJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
@@ -217,7 +217,7 @@ export async function getJobOrderPayrollById(id: string): Promise<{
   members: JobOrderPayrollMember[];
 }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { payroll: null, members: [] };
+  if (!canViewJobOrders(user?.roles)) return { payroll: null, members: [] };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -262,7 +262,7 @@ export async function getJobOrderSssContributionsForMonth(
   monthKey: string,
 ): Promise<{ rows: JobOrderSssWorkerTotal[]; error: string | null }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { rows: [], error: "Unauthorized" };
+  if (!canViewJobOrders(user?.roles)) return { rows: [], error: "Unauthorized" };
   if (!isMonthKey(monthKey)) return { rows: [], error: "Invalid month" };
 
   const supabase = createAdminClient();
@@ -272,7 +272,7 @@ export async function getJobOrderSssContributionsForMonth(
 
 export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return [];
+  if (!canViewJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
   const { data: areas, error } = await supabase

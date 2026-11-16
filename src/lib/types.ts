@@ -20,6 +20,7 @@ export type UserRole =
   | "dtr_manager"
   | "cos_manager"
   | "jo_manager"
+  | "jo_viewer"
   | "event_attendance_officer"
   | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos" | "temporary";

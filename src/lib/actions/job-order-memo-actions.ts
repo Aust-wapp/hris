@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   JOB_ORDER_MEMO_MAX_PAGE_SIZE,
@@ -105,7 +105,7 @@ export async function getJobOrderMemos(
   filters: JobOrderMemoFilters = {},
 ): Promise<{ rows: JobOrderMemo[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
+  if (!canViewJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
@@ -159,7 +159,7 @@ export async function getJobOrderMemoById(id: string): Promise<{
   members: JobOrderMemoMember[];
 }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { memo: null, members: [] };
+  if (!canViewJobOrders(user?.roles)) return { memo: null, members: [] };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase

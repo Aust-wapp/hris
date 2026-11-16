@@ -10,6 +10,7 @@ export const USER_ROLES = {
   COS_MANAGER: "cos_manager",
   DEPARTMENT_HEAD: "department_head",
   JO_MANAGER: "jo_manager",
+  JO_VIEWER: "jo_viewer",
   EMPLOYEE: "employee",
 } as const;
 

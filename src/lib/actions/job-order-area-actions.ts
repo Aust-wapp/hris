@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   jobOrderAreaSchema,
@@ -60,7 +60,7 @@ export async function getJobOrderAreas(
   opts: { includeInactive?: boolean } = {},
 ): Promise<JobOrderArea[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return [];
+  if (!canViewJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
 

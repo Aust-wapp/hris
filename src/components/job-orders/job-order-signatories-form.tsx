@@ -43,8 +43,11 @@ function toFormValues(s: JobOrderSignatories): JobOrderSignatoriesValues {
  */
 export function JobOrderSignatoriesForm({
   signatories,
+  canEdit,
 }: {
   signatories: JobOrderSignatories;
+  /** False for the read-only JO Viewer: fields are disabled, no Save. */
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const {
@@ -74,81 +77,86 @@ export function JobOrderSignatoriesForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-3xl space-y-6">
-      {JOB_ORDER_SIGNATORY_GROUPS.map((group) => (
-        <Card key={group.title}>
-          <CardHeader>
-            <CardTitle className="text-base">{group.title}</CardTitle>
-            <CardDescription>{group.description}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {group.slots.map((slot, i) => {
-              const slotErrors = errors[slot.key];
-              return (
-                <div key={slot.key} className="space-y-3">
-                  {i > 0 && <Separator />}
-                  <div>
-                    <p className="text-sm font-medium">{slot.label}</p>
-                    <p className="text-muted-foreground text-xs">{slot.usedOn}</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor={`${slot.key}-name`}>Name</Label>
-                      <Input
-                        id={`${slot.key}-name`}
-                        {...register(`${slot.key}.name`)}
-                        aria-invalid={!!slotErrors?.name}
-                      />
-                      {slotErrors?.name && (
-                        <p className="text-destructive text-sm">
-                          {slotErrors.name.message}
-                        </p>
-                      )}
+      {/* A disabled fieldset disables every input inside it in one place. */}
+      <fieldset disabled={!canEdit} className="space-y-6">
+        {JOB_ORDER_SIGNATORY_GROUPS.map((group) => (
+          <Card key={group.title}>
+            <CardHeader>
+              <CardTitle className="text-base">{group.title}</CardTitle>
+              <CardDescription>{group.description}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {group.slots.map((slot, i) => {
+                const slotErrors = errors[slot.key];
+                return (
+                  <div key={slot.key} className="space-y-3">
+                    {i > 0 && <Separator />}
+                    <div>
+                      <p className="text-sm font-medium">{slot.label}</p>
+                      <p className="text-muted-foreground text-xs">{slot.usedOn}</p>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`${slot.key}-position`}>Position</Label>
-                      <Input
-                        id={`${slot.key}-position`}
-                        {...register(`${slot.key}.position`)}
-                        aria-invalid={!!slotErrors?.position}
-                      />
-                      {slotErrors?.position && (
-                        <p className="text-destructive text-sm">
-                          {slotErrors.position.message}
-                        </p>
-                      )}
-                    </div>
-                    {slot.hasOffice && (
-                      <div className="space-y-2 sm:col-span-2">
-                        <Label htmlFor={`${slot.key}-office`}>
-                          Office{" "}
-                          <span className="text-muted-foreground font-normal">
-                            (optional)
-                          </span>
-                        </Label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor={`${slot.key}-name`}>Name</Label>
                         <Input
-                          id={`${slot.key}-office`}
-                          {...register(`${slot.key}.office`)}
+                          id={`${slot.key}-name`}
+                          {...register(`${slot.key}.name`)}
+                          aria-invalid={!!slotErrors?.name}
                         />
+                        {slotErrors?.name && (
+                          <p className="text-destructive text-sm">
+                            {slotErrors.name.message}
+                          </p>
+                        )}
                       </div>
-                    )}
+                      <div className="space-y-2">
+                        <Label htmlFor={`${slot.key}-position`}>Position</Label>
+                        <Input
+                          id={`${slot.key}-position`}
+                          {...register(`${slot.key}.position`)}
+                          aria-invalid={!!slotErrors?.position}
+                        />
+                        {slotErrors?.position && (
+                          <p className="text-destructive text-sm">
+                            {slotErrors.position.message}
+                          </p>
+                        )}
+                      </div>
+                      {slot.hasOffice && (
+                        <div className="space-y-2 sm:col-span-2">
+                          <Label htmlFor={`${slot.key}-office`}>
+                            Office{" "}
+                            <span className="text-muted-foreground font-normal">
+                              (optional)
+                            </span>
+                          </Label>
+                          <Input
+                            id={`${slot.key}-office`}
+                            {...register(`${slot.key}.office`)}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      ))}
+                );
+              })}
+            </CardContent>
+          </Card>
+        ))}
+      </fieldset>
 
-      <div className="flex justify-end">
-        <Button type="submit" disabled={!isDirty || isSubmitting}>
-          {isSubmitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          Save signatories
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button type="submit" disabled={!isDirty || isSubmitting}>
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save signatories
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

@@ -102,6 +102,7 @@ const allRoles: UserRole[] = [
   "dtr_manager",
   "cos_manager",
   "jo_manager",
+  "jo_viewer",
   "event_attendance_officer",
   "employee",
 ];
@@ -154,11 +155,11 @@ const attendanceRoles: UserRole[] = [
   "employee",
   "dtr_manager",
 ];
-// Who reaches the Monthly DTR item: every role except the JO and COS managers,
-// whose reach stops at their own registry. Mirrors canAccessDtr in
+// Who reaches the Monthly DTR item: every role except the JO and COS module
+// roles (manager or viewer), whose reach stops at their own registry. Mirrors canAccessDtr in
 // src/lib/auth-helpers.ts; keep the two in sync.
 const dtrRoles: UserRole[] = allRoles.filter(
-  (r) => r !== "jo_manager" && r !== "cos_manager",
+  (r) => r !== "jo_manager" && r !== "jo_viewer" && r !== "cos_manager",
 );
 // The Leave & Attendance nav group must remain visible to department-scoped
 // roles for the Leave items, even though they can't see Attendance & DTR.
@@ -174,10 +175,11 @@ const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
 // src/lib/auth-helpers.ts. A cos_manager uses templates but cannot rewrite the
 // legal boilerplate.
 const cosTemplateRoles: UserRole[] = ["super_admin", "hr_admin"];
-// Roles that can manage the Job Orders module: JO employees, Area
-// Assignments, payrolls, memoranda and special orders.
-// Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
-const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
+// Roles that can open the Job Orders module: JO employees, Area Assignments,
+// payrolls, memoranda, special orders and signatories. jo_viewer sees every
+// item read-only; writes are gated per page. Mirrors canViewJobOrders in
+// src/lib/auth-helpers.ts.
+const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager", "jo_viewer"];
 // Attendance corrections. The union of every side of the workflow —
 // requesters (department-scoped admins), reviewers, and read-only viewers —
 // because they all land on the same /attendance-corrections route, which
@@ -425,6 +427,7 @@ const roleLabels: Record<UserRole, string> = {
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
   jo_manager: "JO Manager",
+  jo_viewer: "JO Viewer",
   event_attendance_officer: "Attendance Checker",
   employee: "Employee",
 };

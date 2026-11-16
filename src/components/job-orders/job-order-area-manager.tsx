@@ -45,9 +45,14 @@ import type { JobOrderArea } from "@/lib/types";
 
 interface JobOrderAreaManagerProps {
   initialAreas: JobOrderArea[];
+  /** False for the read-only JO Viewer: no create, edit or delete. */
+  canEdit: boolean;
 }
 
-export function JobOrderAreaManager({ initialAreas }: JobOrderAreaManagerProps) {
+export function JobOrderAreaManager({
+  initialAreas,
+  canEdit,
+}: JobOrderAreaManagerProps) {
   const router = useRouter();
   const [editing, setEditing] = useState<JobOrderArea | null>(null);
   const [creating, setCreating] = useState(false);
@@ -99,10 +104,9 @@ export function JobOrderAreaManager({ initialAreas }: JobOrderAreaManagerProps) 
     }
   };
 
-  const columns = jobOrderAreaColumns({
-    onEdit: setEditing,
-    onDelete: setDeleteTarget,
-  });
+  const columns = jobOrderAreaColumns(
+    canEdit ? { onEdit: setEditing, onDelete: setDeleteTarget } : null,
+  );
 
   return (
     <>
@@ -121,10 +125,12 @@ export function JobOrderAreaManager({ initialAreas }: JobOrderAreaManagerProps) 
           },
         ]}
         toolbar={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            New Area
-          </Button>
+          canEdit ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              New Area
+            </Button>
+          ) : undefined
         }
       />
 

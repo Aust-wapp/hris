@@ -31,6 +31,7 @@ const roleLabels: Record<string, string> = {
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
   jo_manager: "JO Manager",
+  jo_viewer: "JO Viewer",
   event_attendance_officer: "Attendance Checker",
   employee: "Employee",
 };
@@ -46,6 +47,7 @@ const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
   dtr_manager: "secondary",
   cos_manager: "secondary",
   jo_manager: "secondary",
+  jo_viewer: "outline",
   event_attendance_officer: "secondary",
   employee: "outline",
 };

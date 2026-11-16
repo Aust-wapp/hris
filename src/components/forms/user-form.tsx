@@ -106,6 +106,12 @@ const roleOptions: {
     description: "Runs the Job Orders module: employees, areas, memos, payroll.",
   },
   {
+    value: "jo_viewer",
+    label: "JO Viewer",
+    description:
+      "Views and prints every Job Orders page, including payroll. Cannot change anything.",
+  },
+  {
     value: "cos_manager",
     label: "COS Manager",
     description:

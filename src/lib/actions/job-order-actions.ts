@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import { deriveSortName } from "@/lib/job-order-helpers";
 import {
@@ -96,7 +96,7 @@ export async function getJobOrderEmployees(
   filters: JobOrderFilters = {},
 ): Promise<JobOrderEmployee[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return [];
+  if (!canViewJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
 
@@ -150,7 +150,7 @@ export async function getJobOrderEmployees(
  */
 export async function getActiveJobOrderCount(): Promise<number> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return 0;
+  if (!canViewJobOrders(user?.roles)) return 0;
 
   const { count, error } = await createAdminClient()
     .schema("hris")
@@ -167,7 +167,7 @@ export async function getJobOrderEmployeeById(
   id: string,
 ): Promise<JobOrderEmployee | null> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return null;
+  if (!canViewJobOrders(user?.roles)) return null;
 
   const supabase = createAdminClient();
   const { data, error } = await supabase

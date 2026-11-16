@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrderPayroll, canManageJobOrders, hasRole } from "@/lib/auth-helpers";
+import { canManageJobOrderPayroll, canViewJobOrders, hasRole } from "@/lib/auth-helpers";
 import { getJobOrderPayrollById } from "@/lib/actions/job-order-payroll-actions";
 import { JobOrderPayrollDetailClient } from "@/components/job-orders/payroll/job-order-payroll-detail-client";
 
@@ -11,7 +11,7 @@ export default async function JobOrderPayrollDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
+  if (!canViewJobOrders(user?.roles)) redirect("/dashboard");
 
   // Next 16: params is async — await before destructuring.
   const { id } = await params;

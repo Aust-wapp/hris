@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrderPayroll, canManageJobOrders, hasRole } from "@/lib/auth-helpers";
+import { canManageJobOrderPayroll, canViewJobOrders, hasRole } from "@/lib/auth-helpers";
 import {
   getJobOrderAreasForPicker,
   getJobOrderPayrolls,
@@ -14,7 +14,7 @@ export default async function JobOrderPayrollPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
+  if (!canViewJobOrders(user?.roles)) redirect("/dashboard");
 
   // Next 16: searchParams is async — await before destructuring.
   const sp = await searchParams;

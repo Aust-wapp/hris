@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { getJobOrderSpecialOrders } from "@/lib/actions/job-order-special-order-actions";
 import { JOB_ORDER_SPECIAL_ORDER_PAGE_SIZE } from "@/lib/job-order-special-order-repo";
 import { JobOrderSpecialOrderListClient } from "@/components/job-orders/special-orders/job-order-special-order-list-client";
@@ -12,7 +12,7 @@ export default async function JobOrderSpecialOrdersPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
+  if (!canViewJobOrders(user?.roles)) redirect("/dashboard");
 
   // Next 16: searchParams is async — await before destructuring.
   const sp = await searchParams;

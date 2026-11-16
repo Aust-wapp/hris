@@ -14,6 +14,9 @@ export const ASSIGNABLE_ROLES = [
   "dtr_manager",
   "cos_manager",
   "jo_manager",
+  // Read-only Job Orders (migration 103): opens and prints the whole module,
+  // changes nothing.
+  "jo_viewer",
   // The scan-only Attendance Checker (enum value event_attendance_officer,
   // migration 080). Assignable here so HR can appoint one without a SQL
   // console — the role was gated in code from the start but never offered.

@@ -80,6 +80,8 @@ interface JobOrderListClientProps {
   organizationName: string;
   /** False for accounts that may not see a card token; the details dialog then omits the card. */
   canManageCards: boolean;
+  /** False for the read-only JO Viewer: no create, edit or delete. */
+  canEdit: boolean;
 }
 
 export function JobOrderListClient({
@@ -88,6 +90,7 @@ export function JobOrderListClient({
   isSuperAdmin = false,
   organizationName,
   canManageCards,
+  canEdit,
 }: JobOrderListClientProps) {
   const router = useRouter();
   const [viewing, setViewing] = useState<JobOrderEmployee | null>(null);
@@ -129,13 +132,15 @@ export function JobOrderListClient({
 
   const columns = jobOrderColumns({
     onView: setViewing,
-    onEdit: (employee) => {
-      // Editing from inside the details dialog: close it first so the two
-      // dialogs never stack.
-      setViewing(null);
-      setEditing(employee);
-    },
-    onDelete: setDeleteTarget,
+    onEdit: canEdit
+      ? (employee) => {
+          // Editing from inside the details dialog: close it first so the two
+          // dialogs never stack.
+          setViewing(null);
+          setEditing(employee);
+        }
+      : undefined,
+    onDelete: canEdit ? setDeleteTarget : undefined,
   });
 
   const areaOptions = areas.map((a) => ({ label: a.name, value: a.id }));
@@ -185,10 +190,12 @@ export function JobOrderListClient({
               filename="job-order-employees"
               sheetName="Job Order Employees"
             />
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" />
-              New Employee
-            </Button>
+            {canEdit && (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" />
+                New Employee
+              </Button>
+            )}
           </>
         )}
       />
@@ -199,10 +206,14 @@ export function JobOrderListClient({
         onOpenChange={(o) => {
           if (!o) setViewing(null);
         }}
-        onEdit={(employee) => {
-          setViewing(null);
-          setEditing(employee);
-        }}
+        onEdit={
+          canEdit
+            ? (employee) => {
+                setViewing(null);
+                setEditing(employee);
+              }
+            : undefined
+        }
         organizationName={organizationName}
         canManageCards={canManageCards}
       />

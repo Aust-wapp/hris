@@ -50,6 +50,7 @@ export default async function UsersPage() {
               { label: "DTR Manager", value: "dtr_manager" },
               { label: "COS Manager", value: "cos_manager" },
               { label: "JO Manager", value: "jo_manager" },
+              { label: "JO Viewer", value: "jo_viewer" },
               {
                 label: "Attendance Checker",
                 value: "event_attendance_officer",

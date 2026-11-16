@@ -77,8 +77,12 @@ export default async function DashboardPage() {
   // Job Orders on top of a wider job has all those other modules and wants the
   // full dashboard. Only an account whose widest role IS a module manager gets
   // the one-figure version.
-  if (user.role === "jo_manager" || user.role === "cos_manager") {
-    const isJo = user.role === "jo_manager";
+  if (
+    user.role === "jo_manager" ||
+    user.role === "jo_viewer" ||
+    user.role === "cos_manager"
+  ) {
+    const isJo = user.role === "jo_manager" || user.role === "jo_viewer";
     const count = isJo
       ? await getActiveJobOrderCount()
       : await getActiveCosEmployeeCount();

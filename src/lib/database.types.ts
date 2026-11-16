@@ -3137,6 +3137,7 @@ export type Database = {
         | "dtr_manager"
         | "hr_record_manager"
         | "jo_manager"
+        | "jo_viewer"
         | "cos_manager"
     }
     CompositeTypes: {
@@ -3348,6 +3349,7 @@ export const Constants = {
         "dtr_manager",
         "hr_record_manager",
         "jo_manager",
+        "jo_viewer",
         "cos_manager",
       ],
     },

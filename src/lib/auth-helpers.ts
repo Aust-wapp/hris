@@ -86,6 +86,7 @@ export const ROLE_PRECEDENCE: readonly UserRole[] = [
   "department_admin",
   "jo_manager",
   "cos_manager",
+  "jo_viewer",
   "event_attendance_officer",
   "employee",
 ] as const;
@@ -288,13 +289,14 @@ export function canEditDetailedDepartmentAnyDept(
 }
 
 // Who may open the Monthly DTR module (/dtr) at all. It is open to every
-// signed-in role EXCEPT the two module-scoped manager roles: a JO Manager and a
-// COS Manager administer their own registry and have no reach into plantilla
-// attendance — not even their own DTR, since neither role belongs to the
+// signed-in role EXCEPT the module-scoped roles: a JO Manager, JO Viewer and a
+// COS Manager work inside their own registry and have no reach into plantilla
+// attendance — not even their own DTR, since none of them belongs to the
 // plantilla roster. Everyone else keeps the tier canSelectDtrDepartment /
 // isDeptScoped assigns them.
 const DTR_EXCLUDED_ROLES: readonly UserRole[] = [
   "jo_manager",
+  "jo_viewer",
   "cos_manager",
 ] as const;
 
@@ -320,6 +322,20 @@ export function canManageJobOrders(
   role: RoleInput,
 ): boolean {
   return toRoleList(role).some((r) => JOB_ORDER_ROLES.includes(r));
+}
+
+// Who may OPEN the Job Orders module: everyone who manages it, plus the
+// read-only "jo_viewer" role. Gate pages and read actions with this; gate every
+// write with canManageJobOrders / canManageJobOrderPayroll, which do not admit
+// jo_viewer. A JO Viewer sees and prints everything in the module and changes
+// nothing.
+const JOB_ORDER_VIEW_ROLES: readonly UserRole[] = [
+  ...JOB_ORDER_ROLES,
+  "jo_viewer",
+] as const;
+
+export function canViewJobOrders(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => JOB_ORDER_VIEW_ROLES.includes(r));
 }
 
 // Payroll WRITE access inside a module a manager role owns, settable per

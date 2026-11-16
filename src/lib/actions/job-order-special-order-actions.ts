@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, canViewJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   JOB_ORDER_SPECIAL_ORDER_MAX_PAGE_SIZE,
@@ -106,7 +106,7 @@ export async function getJobOrderSpecialOrders(
   filters: JobOrderSpecialOrderFilters = {},
 ): Promise<{ rows: JobOrderSpecialOrder[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
+  if (!canViewJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
@@ -157,7 +157,7 @@ export async function getJobOrderSpecialOrderById(id: string): Promise<{
   members: JobOrderSpecialOrderMember[];
 }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.roles)) {
+  if (!canViewJobOrders(user?.roles)) {
     return { specialOrder: null, members: [] };
   }
 

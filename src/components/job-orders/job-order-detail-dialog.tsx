@@ -47,7 +47,8 @@ interface JobOrderDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Opens the edit form on this employee — the dialog closes first. */
-  onEdit: (employee: JobOrderEmployee) => void;
+  /** Omit for a read-only viewer: the dialog then has no Edit button. */
+  onEdit?: (employee: JobOrderEmployee) => void;
   /** LGU name printed on the attendance card. */
   organizationName: string;
   /** False for accounts that may not see a card token; the QR panel is then hidden. */
@@ -204,10 +205,12 @@ export function JobOrderDetailDialog({
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          <Button size="sm" onClick={() => onEdit(employee)}>
-            <Pencil className="h-4 w-4" />
-            Edit
-          </Button>
+          {onEdit && (
+            <Button size="sm" onClick={() => onEdit(employee)}>
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
