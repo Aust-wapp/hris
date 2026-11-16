@@ -390,6 +390,12 @@ const navGroups: NavGroup[] = [
         roles: ["super_admin"],
       },
       {
+        title: "External Undertime",
+        href: "/admin/external-undertime",
+        icon: Upload,
+        roles: ["super_admin", "hr_admin"],
+      },
+      {
         title: "Job Order Import",
         href: "/admin/job-order-import",
         icon: Upload,

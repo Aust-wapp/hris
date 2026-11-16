@@ -27,7 +27,8 @@ export default async function LeaveBalancesReportPage({
         <h1 className="text-2xl font-bold tracking-tight">Leave Balances</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Current leave-credit balances for all active plantilla employees.
-          Download as an Excel-compatible file.
+          VL is shown before and after tardiness/undertime deductions (HRIS and
+          external DTR). Download as an Excel-compatible file.
         </p>
       </div>
 

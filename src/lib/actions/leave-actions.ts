@@ -1496,6 +1496,12 @@ export interface LeaveBalanceReportRow {
   full_name: string;
   department: string;
   balances: Record<string, number>;
+  /**
+   * VL days taken off for tardiness/undertime this year (HRIS DTR and external
+   * DTR), as a positive number. Already included in balances.VL; the report
+   * shows it so VL can be read as "before UT − UT = balance".
+   */
+  vl_ut_deducted: number;
 }
 
 export interface LeaveBalanceReport {
@@ -1578,6 +1584,33 @@ export async function getLeaveBalancesReport(
     }
   }
 
+  // Tardiness/undertime charged to VL this year: the net of every
+  // attendance_deduction ledger row (DTR and external DTR, corrections included).
+  const utByEmp = new Map<string, number>();
+  const vlTypeId = sortedTypes.find((lt) => lt.code === "VL")?.id;
+  if (vlTypeId) {
+    for (let i = 0; i < empIds.length; i += CHUNK) {
+      const chunk = empIds.slice(i, i + CHUNK);
+      for (let from = 0; ; from += 1000) {
+        const { data: ded, error: dedErr } = await supabase
+          .schema("hris")
+          .from("leave_credit_accruals")
+          .select("employee_id, amount")
+          .eq("year", year)
+          .eq("leave_type_id", vlTypeId)
+          .eq("source", "attendance_deduction")
+          .in("employee_id", chunk)
+          .order("id")
+          .range(from, from + 999);
+        if (dedErr) throw dedErr;
+        for (const d of ded ?? []) {
+          utByEmp.set(d.employee_id, (utByEmp.get(d.employee_id) ?? 0) + Number(d.amount));
+        }
+        if ((ded ?? []).length < 1000) break;
+      }
+    }
+  }
+
   const rows: LeaveBalanceReportRow[] = empList
     .map((e) => {
       const dept = Array.isArray(e.departments)
@@ -1593,6 +1626,7 @@ export async function getLeaveBalancesReport(
         full_name: formatEmployeeDisplayName(e),
         department: (dept as { name?: string } | null)?.name ?? "—",
         balances,
+        vl_ut_deducted: Number((-(utByEmp.get(e.id) ?? 0)).toFixed(3)) || 0,
       };
     })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
