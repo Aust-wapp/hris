@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { LeaveCreditAdjustmentDialog } from "@/components/leaves/leave-credit-adjustment-dialog";
 import type {
+  AttendanceDeductionMonth,
   LeaveCreditAdjustmentEntry,
   LeaveAccrualHistoryEntry,
   LeaveLedgerEntry,
@@ -45,6 +46,7 @@ interface LeaveCreditsTabProps {
   ledger: LeaveLedgerEntry[];
   adjustments: LeaveCreditAdjustmentEntry[];
   accrualHistory: LeaveAccrualHistoryEntry[];
+  attendanceDeductions: AttendanceDeductionMonth[];
   ledgerYear: number;
   employeeId: string;
   employeeName: string;
@@ -72,11 +74,18 @@ const sourceLabel: Record<string, string> = {
   csv_import: "CSV Import",
 };
 
+const formatMinutes = (mins: number) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
 export function LeaveCreditsTab({
   leaveCredits,
   ledger,
   adjustments,
   accrualHistory,
+  attendanceDeductions,
   ledgerYear,
   employeeId,
   employeeName,
@@ -85,6 +94,15 @@ export function LeaveCreditsTab({
   needsManualEntry,
 }: LeaveCreditsTabProps) {
   const year = new Date().getFullYear();
+
+  const deductionTotalDays =
+    Math.round(
+      attendanceDeductions.reduce((sum, m) => sum + m.days, 0) * 1000,
+    ) / 1000;
+  const deductionTotalMinutes = attendanceDeductions.reduce(
+    (sum, m) => sum + (m.minutes ?? 0),
+    0,
+  );
 
   // Build cards from all leave types so admins can adjust types the employee
   // doesn't yet have a balance for. Existing rows take precedence.
@@ -175,6 +193,12 @@ export function LeaveCreditsTab({
                   <p className="text-xs text-muted-foreground mt-1">
                     {credit.used_credits} used
                   </p>
+                  {leaveType.code === "VL" && deductionTotalDays !== 0 && (
+                    <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">
+                      {fmt3(Math.abs(deductionTotalDays))} deducted for
+                      tardiness/undertime
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -293,6 +317,115 @@ export function LeaveCreditsTab({
                     </TableRow>
                   );
                 })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {attendanceDeductions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Tardiness &amp; Undertime Deductions ({ledgerYear})
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Charged against Vacation Leave at 0.125 day per hour (1 day = 8
+              hours). When a month&apos;s minutes are corrected, only the
+              difference is posted, so a month can show several postings.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead className="text-center">Tardy + Undertime</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-center">Deducted from VL</TableHead>
+                  <TableHead>Postings</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {attendanceDeductions.map((m) => (
+                  <TableRow key={m.month}>
+                    <TableCell className="text-sm">
+                      {new Date(ledgerYear, m.month - 1).toLocaleString(
+                        "default",
+                        { month: "long" },
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center text-sm">
+                      {m.minutes !== null ? (
+                        <>
+                          {formatMinutes(m.minutes)}
+                          <span className="text-xs text-muted-foreground">
+                            {" "}
+                            ({m.minutes} min)
+                          </span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {m.source === "external"
+                        ? "External DTR"
+                        : m.source === "dtr"
+                          ? "HRIS DTR"
+                          : "—"}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {m.days === 0 ? (
+                        <span className="text-muted-foreground">0</span>
+                      ) : (
+                        <span
+                          className={cn(
+                            "font-medium",
+                            m.days < 0
+                              ? "text-red-600 dark:text-red-500"
+                              : "text-emerald-600 dark:text-emerald-500",
+                          )}
+                        >
+                          {m.days > 0 ? "+" : ""}
+                          {fmt3(m.days)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {m.postings.map((p) => (
+                        <div key={p.id}>
+                          {format(new Date(p.created_at), "MMM d, yyyy")}:{" "}
+                          {p.amount > 0 ? "+" : ""}
+                          {fmt3(p.amount)}
+                        </div>
+                      ))}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="font-medium">
+                  <TableCell>Total</TableCell>
+                  <TableCell className="text-center text-sm">
+                    {formatMinutes(deductionTotalMinutes)}
+                    <span className="text-xs text-muted-foreground font-normal">
+                      {" "}
+                      ({deductionTotalMinutes} min)
+                    </span>
+                  </TableCell>
+                  <TableCell />
+                  <TableCell className="text-center">
+                    <span
+                      className={cn(
+                        deductionTotalDays < 0
+                          ? "text-red-600 dark:text-red-500"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {fmt3(deductionTotalDays)}
+                    </span>
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
               </TableBody>
             </Table>
           </CardContent>

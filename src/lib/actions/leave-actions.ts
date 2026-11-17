@@ -1484,6 +1484,99 @@ export async function getLeaveAccrualHistory(
   });
 }
 
+// ── Tardiness / Undertime VL deductions (ledger view) ─────────────
+
+export interface AttendanceDeductionPosting {
+  id: string;
+  amount: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface AttendanceDeductionMonth {
+  month: number;
+  /** Tardy + undertime minutes the month is currently charged for. */
+  minutes: number | null;
+  /** Where those minutes came from: HRIS biometrics or an external DTR file. */
+  source: "dtr" | "external" | null;
+  /** Net VL days deducted for the month (sum of its postings, ≤ 0). */
+  days: number;
+  postings: AttendanceDeductionPosting[];
+}
+
+/**
+ * VL deducted for tardiness/undertime, one entry per month.
+ *
+ * `post_attendance_vl_deduction_for_employee` (migrations 032/105) posts only
+ * the difference between what a month requires and what is already posted,
+ * so a month can hold several rows — including positive reversals when the
+ * minutes are later reduced. The month's net is their sum, and the latest
+ * posting's note carries the month's current minute total.
+ */
+export async function getAttendanceDeductionHistory(
+  employeeId: string,
+  year: number,
+): Promise<AttendanceDeductionMonth[]> {
+  const user = await getCurrentUser();
+  const supabase = createAdminClient();
+
+  if (
+    user &&
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role)
+  ) {
+    if (!user.departmentId) return [];
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("leave_credit_accruals")
+    .select("id, month, amount, notes, created_at")
+    .eq("employee_id", employeeId)
+    .eq("year", year)
+    .eq("source", "attendance_deduction")
+    .not("month", "is", null)
+    .order("month", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  const byMonth = new Map<number, AttendanceDeductionMonth>();
+  for (const d of data ?? []) {
+    const month = d.month as number;
+    const entry = byMonth.get(month) ?? {
+      month,
+      minutes: null,
+      source: null,
+      days: 0,
+      postings: [],
+    };
+    entry.postings.push({
+      id: d.id,
+      amount: Number(d.amount),
+      notes: d.notes,
+      created_at: d.created_at,
+    });
+    entry.days = Math.round((entry.days + Number(d.amount)) * 1000) / 1000;
+    // Rows are ordered oldest first, so the last note seen is the current one.
+    const mins = d.notes?.match(/total (\d+) min/);
+    if (mins) entry.minutes = Number(mins[1]);
+    if (d.notes) {
+      entry.source = d.notes.startsWith("External DTR") ? "external" : "dtr";
+    }
+    byMonth.set(month, entry);
+  }
+
+  return [...byMonth.values()];
+}
+
 // ── Leave Balances Report (all active plantilla employees) ─────────
 
 export interface LeaveBalanceReportColumn {
