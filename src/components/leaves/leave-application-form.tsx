@@ -28,7 +28,7 @@ import { commandSubstringFilter } from "@/lib/command-filter";
 import { createLeaveApplication } from "@/lib/actions/leave-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { LeaveTypeRow, LeaveCreditRow } from "@/lib/actions/leave-actions";
-import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
+import { chargedToCode, insufficientCreditsError, paidLeaveCapacity } from "@/lib/leave-charging";
 import { getEffectivePosition } from "@/lib/employee-position";
 
 interface LeaveApplicationFormProps {
@@ -122,6 +122,15 @@ export function LeaveApplicationForm({
     return c ? Number(c.balance) : null;
   });
   const insufficientCredits = !!(selectedLeaveTypeId && workingDays > 0 && workingDays > availableBalance);
+  // Only VL and SL may spill into leave without pay; other types are blocked.
+  const creditsError = selectedLeaveTypeId && workingDays > 0
+    ? insufficientCreditsError(
+        selectedLeaveType?.code ?? selectedCode,
+        selectedLeaveType?.name,
+        workingDays,
+        availableBalance,
+      )
+    : null;
 
   useEffect(() => {
     setDetailsOfLeave("");
@@ -155,6 +164,10 @@ export function LeaveApplicationForm({
     e.preventDefault();
     if (!selectedEmpId || !selectedLeaveTypeId || workingDays <= 0) {
       toast.error("Please fill in all required fields.");
+      return;
+    }
+    if (creditsError) {
+      toast.error(creditsError);
       return;
     }
 
@@ -489,7 +502,9 @@ export function LeaveApplicationForm({
                       <Badge variant="secondary">
                         {workingDays} day(s)
                       </Badge>
-                      {insufficientCredits && (
+                      {creditsError ? (
+                        <span className="text-xs text-destructive">{creditsError}</span>
+                      ) : insufficientCredits && (
                         <span className="text-xs text-amber-600 dark:text-amber-500">
                           {parseFloat(Math.max(0, workingDays - availableBalance).toFixed(3))} day(s) will be leave without pay
                         </span>
@@ -578,7 +593,7 @@ export function LeaveApplicationForm({
           <div className="px-6 py-4 flex gap-3">
             <Button
               type="submit"
-              disabled={loading || !selectedEmpId || !selectedLeaveTypeId || workingDays <= 0}
+              disabled={loading || !selectedEmpId || !selectedLeaveTypeId || workingDays <= 0 || !!creditsError}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Submit Application

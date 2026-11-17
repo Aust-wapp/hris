@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   chargedToCode,
   debitsCredit,
+  insufficientCreditsError,
   paidLeaveCapacity,
 } from "../../src/lib/leave-charging.ts";
 
@@ -53,4 +54,17 @@ test("Form 6 §7.A: FL debits VL, not SL; WL debits neither", () => {
   assert.equal(debitsCredit("SL", "SL"), true);
   assert.equal(debitsCredit("WL", "VL"), false);
   assert.equal(debitsCredit("SPL", "VL"), false);
+});
+
+test("only VL, SL and RL may be filed beyond the balance", () => {
+  assert.equal(insufficientCreditsError("VL", "Vacation Leave", 10, 2), null);
+  assert.equal(insufficientCreditsError("SL", "Sick Leave", 10, 0), null);
+  assert.equal(insufficientCreditsError("RL", "Rehabilitation Leave", 30, 0), null);
+  assert.equal(insufficientCreditsError("SPL", "Special Privilege Leave", 2, 2), null);
+  assert.equal(
+    insufficientCreditsError("SPL", "Special Privilege Leave", 3, 2),
+    "Insufficient Special Privilege Leave credits: 2 day(s) available, 3 requested.",
+  );
+  assert.match(insufficientCreditsError("WL", "Wellness Leave", 1, 0)!, /0 day\(s\) available/);
+  assert.match(insufficientCreditsError("FL", "Forced Leave", 3, 1.5)!, /capped by the VL balance/);
 });

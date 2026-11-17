@@ -18,7 +18,7 @@ import {
   recomputeLeaveCreditTotal,
 } from "@/lib/leave-credits-helpers";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
-import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
+import { chargedToCode, insufficientCreditsError, paidLeaveCapacity } from "@/lib/leave-charging";
 
 // The OCM-owner rule lives in src/lib/ocm-filing.ts, shared with the CTO module
 // and with both approval UIs, and is unit-tested there. This wrapper only puts
@@ -666,16 +666,31 @@ export async function createLeaveApplication(input: {
     }
   }
 
+  const { data: leaveType } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("code, name")
+    .eq("id", input.leave_type_id)
+    .single();
+
   // Look up current balance to split the application into paid days vs LWOP.
-  // We no longer reject when balance < days_applied; the excess is leave
-  // without pay and won't deduct credits (see `days_with_pay` below).
-  // Forced Leave is also capped by the VL balance it is charged to.
+  // VL and SL may go beyond the balance — the excess is leave without pay and
+  // won't deduct credits (see `days_with_pay` below). Every other type must be
+  // fully covered by its balance. Forced Leave is also capped by the VL
+  // balance it is charged to.
   const availableBalance = await getPaidLeaveCapacity(
     supabase,
     input.employee_id,
     input.leave_type_id,
     year,
   );
+  const creditsError = insufficientCreditsError(
+    leaveType?.code,
+    leaveType?.name,
+    input.days_applied,
+    availableBalance,
+  );
+  if (creditsError) return { error: creditsError };
   const daysWithPay = Math.min(input.days_applied, availableBalance);
 
   // Check for overlapping approved/pending leave using specific dates
@@ -714,13 +729,6 @@ export async function createLeaveApplication(input: {
   }
 
   // Validate maternity leave minimum days
-  const { data: leaveType } = await supabase
-    .schema("hris")
-    .from("leave_types")
-    .select("code")
-    .eq("id", input.leave_type_id)
-    .single();
-
   if (leaveType?.code === "ML" && input.days_applied < 60) {
     return { error: "Maternity leave requires a minimum of 60 days" };
   }
@@ -1045,7 +1053,7 @@ export async function approveLeave(id: string) {
     .schema("hris")
     .from("leave_applications")
     .select(
-      "*, employees(department_id), leave_types(code), created_by_profile:user_profiles!leave_applications_created_by_fkey(role)"
+      "*, employees(department_id), leave_types(code, name), created_by_profile:user_profiles!leave_applications_created_by_fkey(role)"
     )
     .eq("id", id)
     .single();
@@ -1056,10 +1064,10 @@ export async function approveLeave(id: string) {
   const approveRestriction = ocmAdminRestrictionError(app, user);
   if (approveRestriction) return { error: approveRestriction };
 
-  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
-  const leaveTypeCode = Array.isArray(leaveTypeRel)
-    ? leaveTypeRel[0]?.code ?? null
-    : leaveTypeRel?.code ?? null;
+  type LeaveTypeRel = { code: string; name: string };
+  const leaveTypeRel = app.leave_types as LeaveTypeRel | LeaveTypeRel[] | null;
+  const leaveTypeInfo = Array.isArray(leaveTypeRel) ? leaveTypeRel[0] ?? null : leaveTypeRel;
+  const leaveTypeCode = leaveTypeInfo?.code ?? null;
 
   // Department Head approval step (Department Admin is view-only).
   // The composite Dept Admin + Head role and OCM Admin can approve at this
@@ -1165,6 +1173,18 @@ export async function approveLeave(id: string) {
       app.leave_type_id,
       appYear,
     );
+    // Same rule as filing: only VL and SL may spill into leave without pay.
+    // Another approved leave (e.g. a second pending SPL) may have used the
+    // credits since this one was filed.
+    const creditsError = insufficientCreditsError(
+      leaveTypeCode,
+      leaveTypeInfo?.name,
+      Number(app.days_applied),
+      availableBalance,
+    );
+    if (creditsError) {
+      return { error: `${creditsError} Reject this application or adjust the employee's credits first.` };
+    }
     const newDaysWithPay = Math.min(Number(app.days_applied), availableBalance);
 
     const approvedAt = new Date().toISOString();

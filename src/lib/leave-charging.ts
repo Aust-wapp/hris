@@ -46,3 +46,28 @@ export function paidLeaveCapacity(
 export function debitsCredit(code: string | null | undefined, credit: string): boolean {
   return code === credit || chargedToCode(code) === credit;
 }
+
+// Only VL and SL may be filed beyond the balance — the excess becomes leave
+// without pay. Every other type with a credit pool (SPL, FL, WL, SEL, …) must
+// be fully covered by its balance or it cannot be filed. Rehabilitation Leave
+// has no credit pool at all, so it is not checked either.
+const LWOP_ALLOWED: ReadonlySet<string> = new Set(["VL", "SL", "RL"]);
+
+/** Must a leave of `code` be fully covered by its balance to be filed? */
+export function requiresFullCredits(code: string | null | undefined): boolean {
+  return !!code && !LWOP_ALLOWED.has(code);
+}
+
+/** Error to show when a leave of `code` asks for more days than it has, or null. */
+export function insufficientCreditsError(
+  code: string | null | undefined,
+  name: string | null | undefined,
+  daysApplied: number,
+  capacity: number,
+): string | null {
+  if (!requiresFullCredits(code) || daysApplied <= capacity) return null;
+  const label = name || code;
+  const charged = chargedToCode(code);
+  const via = charged ? ` (capped by the ${charged} balance)` : "";
+  return `Insufficient ${label} credits: ${parseFloat(capacity.toFixed(3))} day(s) available${via}, ${daysApplied} requested.`;
+}
