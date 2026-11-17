@@ -1542,8 +1542,11 @@ export interface AttendanceDeductionMonth {
   month: number;
   /** Tardy + undertime minutes the month is currently charged for. */
   minutes: number | null;
-  /** Where those minutes came from: HRIS biometrics or an external DTR file. */
-  source: "dtr" | "external" | null;
+  /**
+   * Where those minutes came from: HRIS biometrics, an external DTR file, or
+   * "deferred" when the month is still open and is not charged yet (108).
+   */
+  source: "dtr" | "external" | "deferred" | null;
   /** Net VL days deducted for the month (sum of its postings, ≤ 0). */
   days: number;
   postings: AttendanceDeductionPosting[];
@@ -1614,7 +1617,11 @@ export async function getAttendanceDeductionHistory(
     const mins = d.notes?.match(/total (\d+) min/);
     if (mins) entry.minutes = Number(mins[1]);
     if (d.notes) {
-      entry.source = d.notes.startsWith("External DTR") ? "external" : "dtr";
+      entry.source = d.notes.startsWith("External DTR")
+        ? "external"
+        : d.notes.startsWith("Month not yet closed")
+          ? "deferred"
+          : "dtr";
     }
     byMonth.set(month, entry);
   }

@@ -211,6 +211,12 @@ export function AttendanceDeductionsClient({ departments }: Props) {
     return [headers.join(","), ...rows].join("\n");
   };
 
+  // Mirrors hris.attendance_deduction_month_minutes (migration 108): the
+  // current month and later ones are not charged until they close.
+  const isOpenMonth =
+    Number(year) * 12 + Number(month) >=
+    now.getFullYear() * 12 + now.getMonth() + 1;
+
   const fileName = `Attendance_Deductions_${year}-${month.padStart(2, "0")}.csv`;
 
   const visiblePreviewRows = preview
@@ -300,6 +306,14 @@ export function AttendanceDeductionsClient({ departments }: Props) {
         </>
       }
     >
+      {isOpenMonth && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          {monthNames[Number(month) - 1]} {year} is not over yet, so it is not
+          charged to VL. Its tardiness/undertime is posted automatically at
+          the start of the next month; anything already posted for it is
+          reversed when the month is recomputed.
+        </div>
+      )}
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         <Badge variant="outline">
           {data.length} employee{data.length === 1 ? "" : "s"} with deductions

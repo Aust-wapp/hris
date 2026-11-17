@@ -337,9 +337,9 @@ export function LeaveCreditsTab({
               Tardiness &amp; Undertime Deductions ({ledgerYear})
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Charged against Vacation Leave at 0.125 day per hour (1 day = 8
-              hours). When a month&apos;s minutes are corrected, only the
-              difference is posted, so a month can show several postings.
+              Charged against Vacation Leave once the month is over, at 0.125
+              day per hour (1 day = 8 hours) — one entry per month, as on the
+              CSC leave card.
             </p>
           </CardHeader>
           <CardContent>
@@ -350,7 +350,6 @@ export function LeaveCreditsTab({
                   <TableHead className="text-center">Tardy + Undertime</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead className="text-center">Deducted from VL</TableHead>
-                  <TableHead>Postings</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -380,7 +379,9 @@ export function LeaveCreditsTab({
                         ? "External DTR"
                         : m.source === "dtr"
                           ? "HRIS DTR"
-                          : "—"}
+                          : m.source === "deferred"
+                            ? "Not charged yet — month still open"
+                            : "—"}
                     </TableCell>
                     <TableCell className="text-center">
                       {m.days === 0 ? (
@@ -398,15 +399,6 @@ export function LeaveCreditsTab({
                           {fmt3(m.days)}
                         </span>
                       )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {m.postings.map((p) => (
-                        <div key={p.id}>
-                          {format(new Date(p.created_at), "MMM d, yyyy")}:{" "}
-                          {p.amount > 0 ? "+" : ""}
-                          {fmt3(p.amount)}
-                        </div>
-                      ))}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -431,7 +423,6 @@ export function LeaveCreditsTab({
                       {fmt3(deductionTotalDays)}
                     </span>
                   </TableCell>
-                  <TableCell />
                 </TableRow>
               </TableBody>
             </Table>

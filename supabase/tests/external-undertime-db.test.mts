@@ -29,8 +29,9 @@ const admin = createClient(status.API_URL, status.SERVICE_ROLE_KEY, {
 // Seeded by supabase/seed.sql, both active plantilla on the default schedule.
 const EMP = "00000000-0000-0000-0000-0000000000e2";
 const SEP = "00000000-0000-0000-0000-0000000000e3";
-// A year nothing else in the suite touches.
-const YEAR = 2031;
+// A past year nothing else in the suite touches — past, because the current
+// and later months are not charged until they close (migration 108).
+const YEAR = 2014;
 
 let VL = "";
 
@@ -146,14 +147,14 @@ test("deleting the external row reverses what it deducted", async () => {
 test("HRIS biometric logs for the month win over the external figure", async () => {
   const M = 3;
   await setExternal(EMP, M, 10560); // "22 days" from the external file
-  // One HRIS day, 30 minutes late, otherwise complete (Monday 2031-03-03).
+  // One HRIS day, 30 minutes late, otherwise complete (Monday 2014-03-03).
   const { error } = await admin.from("attendance_logs").upsert({
     employee_id: EMP,
-    date: "2031-03-03",
-    time_in_am: "2031-03-03T08:30:00",
-    time_out_am: "2031-03-03T12:00:00",
-    time_in_pm: "2031-03-03T13:00:00",
-    time_out_pm: "2031-03-03T17:00:00",
+    date: "2014-03-03",
+    time_in_am: "2014-03-03T08:30:00",
+    time_out_am: "2014-03-03T12:00:00",
+    time_in_pm: "2014-03-03T13:00:00",
+    time_out_pm: "2014-03-03T17:00:00",
     is_absent: false,
     source: "biometric",
   }, { onConflict: "employee_id,date" });
@@ -165,7 +166,7 @@ test("HRIS biometric logs for the month win over the external figure", async () 
   assert.match(l.rows[0].notes, /Tardy\/undertime auto-deduction/);
 
   const { data: pairs } = await admin.rpc("employee_months_with_logs", {
-    p_from: "2031-03-01", p_to: "2031-03-31",
+    p_from: "2014-03-01", p_to: "2014-03-31",
   });
   assert.ok((pairs ?? []).some((p: { employee_id: string; month: number }) => p.employee_id === EMP && p.month === 3));
 });
