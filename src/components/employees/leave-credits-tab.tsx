@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { chargedToCode } from "@/lib/leave-charging";
 import { LeaveCreditAdjustmentDialog } from "@/components/leaves/leave-credit-adjustment-dialog";
 import type {
   AttendanceDeductionMonth,
@@ -193,6 +194,12 @@ export function LeaveCreditsTab({
                   <p className="text-xs text-muted-foreground mt-1">
                     {credit.used_credits} used
                   </p>
+                  {chargedToCode(leaveType.code) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Days left to take — charged to{" "}
+                      {chargedToCode(leaveType.code)} when approved
+                    </p>
+                  )}
                   {leaveType.code === "VL" && deductionTotalDays !== 0 && (
                     <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">
                       {fmt3(Math.abs(deductionTotalDays))} deducted for

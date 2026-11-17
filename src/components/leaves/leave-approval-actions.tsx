@@ -41,6 +41,8 @@ interface LeaveApprovalActionsProps {
   /** Current credit balance for this leave's type (the view value, which
    *  already excludes this leave's `days_with_pay`). */
   creditBalance?: number;
+  /** The code whose credits this leave also consumes (FL → VL), if any. */
+  chargedToCode?: string | null;
   leaveTypeCode?: string | null;
   /** When non-null, the leave was filed by an OCM Admin and is owned by this
    *  user: department-scoped accounts get no approval/reject buttons. HR Admin,
@@ -57,6 +59,7 @@ export function LeaveApprovalActions({
   daysApplied,
   daysWithPay,
   creditBalance,
+  chargedToCode,
   leaveTypeCode,
   restrictToUserId,
 }: LeaveApprovalActionsProps) {
@@ -163,6 +166,7 @@ export function LeaveApprovalActions({
                   <div className="rounded-md border p-2">
                     <div className="text-muted-foreground text-xs">
                       Available {leaveTypeCode ?? ""} balance
+                      {chargedToCode ? ` (capped by ${chargedToCode})` : ""}
                     </div>
                     <div className="font-medium">{currentBalance}</div>
                   </div>

@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { pdf } from "@react-pdf/renderer";
 import { LeaveForm6Pdf } from "@/components/pdf/leave-form6-pdf";
 import type { LeaveApplicationWithRelations, LeaveCreditRow } from "@/lib/actions/leave-actions";
+import { debitsCredit } from "@/lib/leave-charging";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { formatManilaLongDate } from "@/lib/format-date";
 import { leaveFiledOn } from "@/lib/leave-date-filed";
@@ -60,10 +61,11 @@ export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButto
   // balance instead would make an already-printed form shrink every time a
   // later leave is approved, and would double-count that later leave.
   const code = leave.leave_types?.code ?? "";
-  // §7.A only certifies VL and SL credits — any other leave type (FL, SPL, ML,
-  // PL, …) leaves the ledger untouched on the printed form.
-  const debitsVl = code === "VL";
-  const debitsSl = code === "SL";
+  // §7.A only certifies VL and SL credits. Forced Leave is charged to VL
+  // (CSC), so it debits VL too; any other type (SPL, WL, ML, PL, …) leaves
+  // the ledger untouched on the printed form.
+  const debitsVl = debitsCredit(code, "VL");
+  const debitsSl = debitsCredit(code, "SL");
   const daysWithPay = Number(leave.days_with_pay ?? leave.days_applied);
 
   const earnedAsOfFiling = (credit: LeaveCreditRow | undefined) =>

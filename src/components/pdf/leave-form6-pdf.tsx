@@ -7,6 +7,12 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import { formatGroupedLeaveDates } from "@/lib/leave-dates-format";
+import { debitsCredit } from "@/lib/leave-charging";
+
+/** Leave codes that have their own checkbox in §6.A; anything else goes on "Others:". */
+const FORM6_CHECKBOX_CODES = new Set([
+  "VL", "FL", "SL", "ML", "PL", "SPL", "SoloParent", "VAWC", "RL", "SEL", "CL", "AL",
+]);
 
 const BORDER = "1pt solid #000";
 const HAIR = "0.7pt solid #000";
@@ -280,7 +286,7 @@ export function LeaveForm6Pdf({
   department,
   salaryGrade,
   dateOfFiling,
-  leaveType: _leaveType,
+  leaveType,
   leaveTypeCode,
   startDate,
   endDate,
@@ -342,12 +348,16 @@ export function LeaveForm6Pdf({
         : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
       : `${fmtDate(startDate)} to ${fmtDate(endDate)}`;
 
-  // §7.A only certifies VL and SL credits. Any other leave type (FL, SPL, ML,
-  // PL, …) leaves both "Less this application" cells blank — Total Earned and
-  // Balance stay equal. Only the paid portion (daysWithPay) consumes credits;
-  // the LWOP portion is shown separately under §7.C.
-  const lessVl = isCode("VL") ? daysWithPay : 0;
-  const lessSl = isCode("SL") ? daysWithPay : 0;
+  // §7.A only certifies VL and SL credits. Forced Leave is charged to VL (CSC)
+  // so it fills the VL "Less this application" cell; any other type (SPL, WL,
+  // ML, PL, …) leaves both cells blank — Total Earned and Balance stay equal.
+  // Only the paid portion (daysWithPay) consumes credits; the LWOP portion is
+  // shown separately under §7.C.
+  const lessVl = debitsCredit(leaveTypeCode, "VL") ? daysWithPay : 0;
+  const lessSl = debitsCredit(leaveTypeCode, "SL") ? daysWithPay : 0;
+  // Types without their own checkbox on the form (e.g. Wellness Leave) are
+  // written on the "Others:" line.
+  const othersText = FORM6_CHECKBOX_CODES.has(leaveTypeCode) ? "" : leaveType;
   const daysWithoutPay = Math.max(0, daysApplied - daysWithPay);
   // Trim float artifacts (e.g. 5.806999999) to at most 3 decimal places.
   const fmt3 = (n: number) =>
@@ -532,7 +542,9 @@ export function LeaveForm6Pdf({
               </View>
 
               <Text style={[s.italic, { fontSize: 8.5, marginTop: 6 }]}>Others:</Text>
-              <Text style={{ borderBottom: HAIR, minHeight: 11, marginTop: 4 }} />
+              <Text style={{ borderBottom: HAIR, minHeight: 11, marginTop: 4, fontSize: 9 }}>
+                {othersText}
+              </Text>
             </View>
 
             {/* 6.B */}

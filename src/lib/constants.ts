@@ -96,6 +96,7 @@ export const LEAVE_TYPE_CODES = [
   "AL",
   "RL",
   "SEL",
+  "WL",
 ] as const;
 
 export const DOCUMENT_TYPES = {

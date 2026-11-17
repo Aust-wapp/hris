@@ -28,6 +28,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { isDeptScoped } from "@/lib/auth-helpers";
 import { ocmFilingOwnerId } from "@/lib/ocm-filing";
 import { getEffectivePosition } from "@/lib/employee-position";
+import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
 import { LeaveAuditTrail } from "@/components/leaves/leave-audit-trail";
@@ -71,6 +72,14 @@ export default async function LeaveDetailPage({
   const year = new Date(leave.start_date).getFullYear();
   const allCredits = await getEmployeeLeaveCredits(leave.employee_id, year);
   const credit = allCredits.find((c) => c.leave_type_id === leave.leave_type_id);
+  // Forced Leave is charged to VL (CSC), so its paid days are also capped by
+  // the VL balance and the VL row shows this application too.
+  const leaveCode = leave.leave_types?.code ?? null;
+  const chargedCode = chargedToCode(leaveCode);
+  const creditCapacity = paidLeaveCapacity(leaveCode, (code) => {
+    const c = allCredits.find((x) => x.leave_types?.code === code);
+    return c ? Number(c.balance) : null;
+  });
 
   // Credits consumed ahead of this application in the filing queue — CSC Form 6
   // §7.A certifies the balance "as of" the filing date, not today's.
@@ -85,10 +94,7 @@ export default async function LeaveDetailPage({
   // afterwards. Recompute live against the current balance so the projection
   // (LWOP note, "Balance After" column) matches what the approver will see.
   const liveDaysWithPay = showProjection && credit
-    ? Math.min(
-        Number(leave.days_applied),
-        Math.max(0, Number(credit.balance))
-      )
+    ? Math.min(Number(leave.days_applied), creditCapacity)
     : Number(leave.days_with_pay ?? leave.days_applied);
   const liveDaysWithoutPay = Math.max(0, Number(leave.days_applied) - liveDaysWithPay);
 
@@ -151,7 +157,8 @@ export default async function LeaveDetailPage({
             user={user}
             daysApplied={Number(leave.days_applied)}
             daysWithPay={Number(leave.days_with_pay ?? 0)}
-            creditBalance={credit ? Number(credit.balance) : 0}
+            creditBalance={creditCapacity}
+            chargedToCode={chargedCode}
             leaveTypeCode={leave.leave_types?.code ?? null}
             restrictToUserId={ocmFilingOwnerId(leave)}
           />
@@ -255,7 +262,10 @@ export default async function LeaveDetailPage({
                     // it to the projected Balance — keeping it distinct from the
                     // credits already consumed by approved leaves ("Used").
                     // Only the paid portion deducts from credits.
-                    const projectThisRow = showProjection && isRequested;
+                    const projectThisRow =
+                      showProjection &&
+                      (isRequested ||
+                        (!!chargedCode && c.leave_types?.code === chargedCode));
                     const used = Number(c.used_credits);
                     const thisApplication = projectThisRow ? liveDaysWithPay : 0;
                     const balance = Number(c.balance) - thisApplication;

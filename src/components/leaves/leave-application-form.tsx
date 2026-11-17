@@ -28,6 +28,7 @@ import { commandSubstringFilter } from "@/lib/command-filter";
 import { createLeaveApplication } from "@/lib/actions/leave-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { LeaveTypeRow, LeaveCreditRow } from "@/lib/actions/leave-actions";
+import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
 import { getEffectivePosition } from "@/lib/employee-position";
 
 interface LeaveApplicationFormProps {
@@ -110,7 +111,16 @@ export function LeaveApplicationForm({
     return credits.find((c) => c.leave_type_id === selectedLeaveTypeId) ?? null;
   }, [credits, selectedLeaveTypeId]);
 
-  const availableBalance = selectedCredit ? Number(selectedCredit.balance) : 0;
+  // Forced Leave is charged to VL (CSC), so it is also capped by the VL balance.
+  const selectedCode = selectedCredit?.leave_types?.code ?? null;
+  const selectedChargedCode = chargedToCode(selectedCode);
+  const selectedChargedCredit = selectedChargedCode
+    ? credits.find((c) => c.leave_types?.code === selectedChargedCode) ?? null
+    : null;
+  const availableBalance = paidLeaveCapacity(selectedCode, (code) => {
+    const c = credits.find((x) => x.leave_types?.code === code);
+    return c ? Number(c.balance) : null;
+  });
   const insufficientCredits = !!(selectedLeaveTypeId && workingDays > 0 && workingDays > availableBalance);
 
   useEffect(() => {
@@ -331,6 +341,12 @@ export function LeaveApplicationForm({
                   <p className="text-xs text-muted-foreground mt-2 px-2">
                     Credit balance: <span className="font-semibold">{availableBalance}</span> day(s)
                     (Total: {Number(selectedCredit.total_credits)}, Used: {Number(selectedCredit.used_credits)})
+                    {selectedChargedCode && (
+                      <>
+                        {" "}— charged to {selectedChargedCredit?.leave_types?.name ?? selectedChargedCode}
+                        {" "}(balance: {selectedChargedCredit ? Number(selectedChargedCredit.balance) : 0})
+                      </>
+                    )}
                   </p>
                 )}
               </div>

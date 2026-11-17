@@ -37,7 +37,7 @@ export type EmployeeStatus =
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
 export type LeaveTypeCode =
   | "VL" | "SL" | "ML" | "PL" | "SPL" | "FL"
-  | "SoloParent" | "VAWC" | "RA9262" | "CL" | "AL" | "RL" | "SEL";
+  | "SoloParent" | "VAWC" | "RA9262" | "CL" | "AL" | "RL" | "SEL" | "WL";
 export type DocumentType =
   | "201_file" | "nosi" | "nosa" | "service_record"
   | "leave_form" | "dtr" | "ipcr" | "other";

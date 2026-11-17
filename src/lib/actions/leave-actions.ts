@@ -18,6 +18,7 @@ import {
   recomputeLeaveCreditTotal,
 } from "@/lib/leave-credits-helpers";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
+import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
 
 // The OCM-owner rule lives in src/lib/ocm-filing.ts, shared with the CTO module
 // and with both approval UIs, and is unit-tested there. This wrapper only puts
@@ -216,6 +217,49 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
  * Only approved applications and only the `days_with_pay` portion count, and
  * the year is scoped by `start_date`, matching `hris.leave_credit_balances`.
  */
+/**
+ * Paid days an application of `leaveTypeId` can draw for an employee/year:
+ * its own balance, also capped by the type it is charged to (FL → VL). See
+ * src/lib/leave-charging.ts. `addBack` re-adds paid days already counted in
+ * the balances (re-allocating an approved leave).
+ */
+async function getPaidLeaveCapacity(
+  supabase: ReturnType<typeof createAdminClient>,
+  employeeId: string,
+  leaveTypeId: string,
+  year: number,
+  addBack = 0,
+): Promise<number> {
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("leave_credit_balances")
+    .select("leave_type_id, balance, leave_types(code)")
+    .eq("employee_id", employeeId)
+    .eq("year", year);
+  if (error) throw error;
+
+  const byCode = new Map<string, number>();
+  let code: string | null = null;
+  for (const row of data ?? []) {
+    const lt = Array.isArray(row.leave_types) ? row.leave_types[0] : row.leave_types;
+    if (!lt?.code) continue;
+    byCode.set(lt.code, Number(row.balance));
+    if (row.leave_type_id === leaveTypeId) code = lt.code;
+  }
+  if (!code) {
+    // No credit row for this type — fetch its code so a charged-to rule still
+    // resolves (the capacity is 0 either way, since the own row is missing).
+    const { data: lt } = await supabase
+      .schema("hris")
+      .from("leave_types")
+      .select("code")
+      .eq("id", leaveTypeId)
+      .maybeSingle();
+    code = lt?.code ?? null;
+  }
+  return paidLeaveCapacity(code, (c) => byCode.get(c), addBack);
+}
+
 export async function getPaidUsageBeforeApplication(
   leaveId: string
 ): Promise<Record<string, number>> {
@@ -255,6 +299,16 @@ export async function getPaidUsageBeforeApplication(
     .eq("status", "approved");
   if (error) throw error;
 
+  // A leave charged to another type (FL → VL) is prior usage of that type
+  // too, exactly as the balance view counts it.
+  const { data: types, error: typesError } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("id, code");
+  if (typesError) throw typesError;
+  const codeById = new Map((types ?? []).map((t) => [t.id, t.code as string]));
+  const idByCode = new Map((types ?? []).map((t) => [t.code as string, t.id]));
+
   const targetIsApproved = target.status === "approved";
   const targetKey = Date.parse(target.created_at);
 
@@ -270,8 +324,10 @@ export async function getPaidUsageBeforeApplication(
       const isPrior = key < targetKey || (key === targetKey && s.id < target.id);
       if (!isPrior) continue;
     }
-    usage[s.leave_type_id] =
-      (usage[s.leave_type_id] ?? 0) + Number(s.days_with_pay ?? 0);
+    const days = Number(s.days_with_pay ?? 0);
+    usage[s.leave_type_id] = (usage[s.leave_type_id] ?? 0) + days;
+    const chargedId = idByCode.get(chargedToCode(codeById.get(s.leave_type_id)) ?? "");
+    if (chargedId) usage[chargedId] = (usage[chargedId] ?? 0) + days;
   }
   return usage;
 }
@@ -613,16 +669,13 @@ export async function createLeaveApplication(input: {
   // Look up current balance to split the application into paid days vs LWOP.
   // We no longer reject when balance < days_applied; the excess is leave
   // without pay and won't deduct credits (see `days_with_pay` below).
-  const { data: credit } = await supabase
-    .schema("hris")
-    .from("leave_credit_balances")
-    .select("balance")
-    .eq("employee_id", input.employee_id)
-    .eq("leave_type_id", input.leave_type_id)
-    .eq("year", year)
-    .maybeSingle();
-
-  const availableBalance = credit ? Math.max(0, Number(credit.balance)) : 0;
+  // Forced Leave is also capped by the VL balance it is charged to.
+  const availableBalance = await getPaidLeaveCapacity(
+    supabase,
+    input.employee_id,
+    input.leave_type_id,
+    year,
+  );
   const daysWithPay = Math.min(input.days_applied, availableBalance);
 
   // Check for overlapping approved/pending leave using specific dates
@@ -925,16 +978,13 @@ export async function overrideApprovedLeaveDaysWithPay(
   // balance, so we must add it back before deciding whether the new value
   // fits.
   const year = new Date(app.start_date).getFullYear();
-  const { data: currentCredit } = await supabase
-    .schema("hris")
-    .from("leave_credit_balances")
-    .select("balance")
-    .eq("employee_id", app.employee_id)
-    .eq("leave_type_id", app.leave_type_id)
-    .eq("year", year)
-    .maybeSingle();
-  const currentBalance = currentCredit ? Number(currentCredit.balance) : 0;
-  const availableCapacity = currentBalance + oldDaysWithPay;
+  const availableCapacity = await getPaidLeaveCapacity(
+    supabase,
+    app.employee_id,
+    app.leave_type_id,
+    year,
+    oldDaysWithPay,
+  );
   if (newDaysWithPay > availableCapacity)
     return {
       error: `Insufficient credits — only ${availableCapacity} day(s) available for this leave type.`,
@@ -1109,17 +1159,12 @@ export async function approveLeave(id: string) {
     // available before this application gets approved. This corrects stale
     // values when credits were seeded/imported after the leave was filed.
     const appYear = new Date(app.start_date).getFullYear();
-    const { data: currentCredit } = await supabase
-      .schema("hris")
-      .from("leave_credit_balances")
-      .select("balance")
-      .eq("employee_id", app.employee_id)
-      .eq("leave_type_id", app.leave_type_id)
-      .eq("year", appYear)
-      .maybeSingle();
-    const availableBalance = currentCredit
-      ? Math.max(0, Number(currentCredit.balance))
-      : 0;
+    const availableBalance = await getPaidLeaveCapacity(
+      supabase,
+      app.employee_id,
+      app.leave_type_id,
+      appYear,
+    );
     const newDaysWithPay = Math.min(Number(app.days_applied), availableBalance);
 
     const approvedAt = new Date().toISOString();

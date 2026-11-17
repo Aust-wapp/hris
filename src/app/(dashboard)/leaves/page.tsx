@@ -86,6 +86,7 @@ export default async function LeavesPage() {
               { label: "Paternity Leave", value: "PL" },
               { label: "Special Privilege", value: "SPL" },
               { label: "Forced Leave", value: "FL" },
+              { label: "Wellness Leave", value: "WL" },
             ],
           },
         ]}

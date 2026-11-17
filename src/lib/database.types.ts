@@ -3101,6 +3101,7 @@ export type Database = {
         | "AL"
         | "RL"
         | "SEL"
+        | "WL"
       rsp_appointment_nature:
         | "original"
         | "promotion"
@@ -3309,6 +3310,7 @@ export const Constants = {
         "AL",
         "RL",
         "SEL",
+        "WL",
       ],
       rsp_appointment_nature: [
         "original",
