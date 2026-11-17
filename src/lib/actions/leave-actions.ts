@@ -1577,6 +1577,194 @@ export async function getAttendanceDeductionHistory(
   return [...byMonth.values()];
 }
 
+// ── VL Overstatement Report (Nov 16, 2026 resync) ─────────────────
+
+/**
+ * When migration 105 went live. Before it, tardy/undertime deductions were
+ * written to the ledger but never subtracted from leave_credits.total_credits,
+ * so every VL balance shown before this moment — Leave Balances, the leave
+ * application screens, CSC Form 6 §7.A — left them out. Migration 105 resynced
+ * the totals; the first deductions posted by the new code are at 05:58 UTC.
+ */
+const VL_RESYNC_CUTOFF = "2026-11-16T05:00:00Z";
+const VL_RESYNC_YEAR = 2026;
+
+export interface VlResyncLeave {
+  id: string;
+  code: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  created_at: string;
+}
+
+export interface VlResyncRow {
+  employee_id: string;
+  id_number: string | null;
+  full_name: string;
+  department: string;
+  employee_status: string;
+  /** Deductions missing from the VL balance before the fix (positive days). */
+  overstated_by: number;
+  /** Net deductions posted since the fix (negative = more deducted). */
+  posted_since_fix: number;
+  vl_balance_now: number;
+  /** Leaves filed before the fix whose printed Form 6 may show too much VL. */
+  leaves_before_fix: VlResyncLeave[];
+}
+
+export interface VlResyncReport {
+  cutoff: string;
+  year: number;
+  rows: VlResyncRow[];
+}
+
+/**
+ * Employees whose 2026 VL was shown too high before the Nov 16 fix, and by
+ * how much: the sum of their attendance_deduction rows posted before the
+ * cutoff. Includes the leaves they filed before the fix, since any CSC Form 6
+ * printed for those certified the overstated VL.
+ */
+export async function getVlResyncReport(): Promise<VlResyncReport> {
+  const empty = { cutoff: VL_RESYNC_CUTOFF, year: VL_RESYNC_YEAR, rows: [] };
+  const user = await getCurrentUser();
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) return empty;
+
+  const supabase = createAdminClient();
+  const cutoffMs = Date.parse(VL_RESYNC_CUTOFF);
+
+  const { data: vl, error: vlErr } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("id")
+    .eq("code", "VL")
+    .maybeSingle();
+  if (vlErr) throw vlErr;
+  if (!vl) return empty;
+
+  const before = new Map<string, number>();
+  const after = new Map<string, number>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("leave_credit_accruals")
+      .select("employee_id, amount, created_at")
+      .eq("year", VL_RESYNC_YEAR)
+      .eq("leave_type_id", vl.id)
+      .eq("source", "attendance_deduction")
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw error;
+    for (const d of data ?? []) {
+      const bucket = Date.parse(d.created_at) < cutoffMs ? before : after;
+      bucket.set(d.employee_id, (bucket.get(d.employee_id) ?? 0) + Number(d.amount));
+    }
+    if (!data || data.length < 1000) break;
+  }
+
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const empIds = [...before]
+    .filter(([, sum]) => round3(sum) !== 0)
+    .map(([id]) => id);
+
+  const employees = new Map<
+    string,
+    {
+      id_number: string | null;
+      first_name: string;
+      middle_name: string | null;
+      last_name: string;
+      suffix: string | null;
+      status: string;
+      department: string;
+    }
+  >();
+  const balances = new Map<string, number>();
+  const leaves = new Map<string, VlResyncLeave[]>();
+
+  // Chunked: a URL with hundreds of UUIDs is rejected by PostgREST.
+  const CHUNK = 200;
+  for (let i = 0; i < empIds.length; i += CHUNK) {
+    const chunk = empIds.slice(i, i + CHUNK);
+    const [empRes, balRes, leaveRes] = await Promise.all([
+      supabase
+        .schema("hris")
+        .from("employees")
+        .select(
+          "id, id_number, first_name, middle_name, last_name, suffix, status, departments!employees_department_id_fkey(name)",
+        )
+        .in("id", chunk),
+      supabase
+        .schema("hris")
+        .from("leave_credit_balances")
+        .select("employee_id, balance")
+        .eq("year", VL_RESYNC_YEAR)
+        .eq("leave_type_id", vl.id)
+        .in("employee_id", chunk),
+      supabase
+        .schema("hris")
+        .from("leave_applications")
+        .select("id, employee_id, start_date, end_date, status, created_at, leave_types(code)")
+        .in("employee_id", chunk)
+        .in("status", ["approved", "pending"])
+        .gte("start_date", `${VL_RESYNC_YEAR}-01-01`)
+        .lte("start_date", `${VL_RESYNC_YEAR}-12-31`)
+        .lt("created_at", VL_RESYNC_CUTOFF)
+        .order("created_at"),
+    ]);
+    if (empRes.error) throw empRes.error;
+    if (balRes.error) throw balRes.error;
+    if (leaveRes.error) throw leaveRes.error;
+
+    for (const e of empRes.data ?? []) {
+      const dept = Array.isArray(e.departments) ? e.departments[0] : e.departments;
+      employees.set(e.id, {
+        id_number: e.id_number,
+        first_name: e.first_name,
+        middle_name: e.middle_name,
+        last_name: e.last_name,
+        suffix: e.suffix,
+        status: e.status,
+        department: dept?.name ?? "",
+      });
+    }
+    for (const b of balRes.data ?? []) {
+      balances.set(b.employee_id, Number(b.balance) || 0);
+    }
+    for (const l of leaveRes.data ?? []) {
+      const lt = Array.isArray(l.leave_types) ? l.leave_types[0] : l.leave_types;
+      const list = leaves.get(l.employee_id) ?? [];
+      list.push({
+        id: l.id,
+        code: lt?.code ?? "",
+        start_date: l.start_date,
+        end_date: l.end_date,
+        status: l.status,
+        created_at: l.created_at,
+      });
+      leaves.set(l.employee_id, list);
+    }
+  }
+
+  const rows: VlResyncRow[] = empIds.map((id) => {
+    const e = employees.get(id);
+    return {
+      employee_id: id,
+      id_number: e?.id_number ?? null,
+      full_name: e ? formatEmployeeDisplayName(e) : "Unknown employee",
+      department: e?.department ?? "",
+      employee_status: e?.status ?? "",
+      overstated_by: round3(-(before.get(id) ?? 0)),
+      posted_since_fix: round3(after.get(id) ?? 0),
+      vl_balance_now: round3(balances.get(id) ?? 0),
+      leaves_before_fix: leaves.get(id) ?? [],
+    };
+  });
+  rows.sort((a, b) => b.overstated_by - a.overstated_by);
+
+  return { cutoff: VL_RESYNC_CUTOFF, year: VL_RESYNC_YEAR, rows };
+}
+
 // ── Leave Balances Report (all active plantilla employees) ─────────
 
 export interface LeaveBalanceReportColumn {

@@ -41,6 +41,12 @@ const reports = [
     icon: CalendarDays,
   },
   {
+    title: "VL Overstated Before Nov 16 Fix",
+    description: "Employees whose VL balance (and printed CSC Form 6) left out tardiness/undertime deductions before the Nov 16, 2026 fix — Excel download",
+    href: "/reports/vl-resync",
+    icon: CalendarDays,
+  },
+  {
     title: "NOSI Summary",
     description: "All Notice of Step Increment records by date range",
     href: "/reports/nosi-summary",
