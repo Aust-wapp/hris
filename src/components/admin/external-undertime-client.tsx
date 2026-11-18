@@ -174,6 +174,10 @@ export function ExternalUndertimeClient({
   const [editMinutes, setEditMinutes] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ExternalUndertimeRecord | null>(null);
+  const [statusTarget, setStatusTarget] = useState<{
+    record: ExternalUndertimeRecord;
+    status: ExternalUndertimeRecord["status"];
+  } | null>(null);
 
   const handleStatus = useCallback(
     async (r: ExternalUndertimeRecord, status: ExternalUndertimeRecord["status"]) => {
@@ -188,6 +192,22 @@ export function ExternalUndertimeClient({
     },
     [router],
   );
+
+  // Rows on hold are awaiting HR review, so resolving one (charge or exclude)
+  // asks first; other status changes apply straight from the menu.
+  const requestStatus = useCallback(
+    (r: ExternalUndertimeRecord, status: ExternalUndertimeRecord["status"]) => {
+      if (r.status === "hold") setStatusTarget({ record: r, status });
+      else void handleStatus(r, status);
+    },
+    [handleStatus],
+  );
+
+  const confirmStatus = async () => {
+    if (!statusTarget) return;
+    await handleStatus(statusTarget.record, statusTarget.status);
+    setStatusTarget(null);
+  };
 
   const openEdit = useCallback((r: ExternalUndertimeRecord) => {
     setEditTarget(r);
@@ -229,11 +249,11 @@ export function ExternalUndertimeClient({
   const recordColumns = useMemo(
     () =>
       externalRecordColumns({
-        onStatus: handleStatus,
+        onStatus: requestStatus,
         onEdit: openEdit,
         onDelete: setDeleteTarget,
       }),
-    [handleStatus, openEdit],
+    [requestStatus, openEdit],
   );
 
   const recordFilters = useMemo(
@@ -489,6 +509,41 @@ export function ExternalUndertimeClient({
             <AlertDialogCancel disabled={busyId !== null}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} disabled={busyId !== null}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Status change on an on-hold record */}
+      <AlertDialog open={statusTarget !== null} onOpenChange={(o) => !o && busyId === null && setStatusTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {statusTarget?.status === "apply"
+                ? "Charge this record to VL?"
+                : statusTarget?.status === "excluded"
+                  ? "Exclude this record?"
+                  : "Change this record's status?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {statusTarget &&
+                `${statusTarget.record.employeeName}, ${MONTH_LABELS[statusTarget.record.month - 1]} ${statusTarget.record.year}: ` +
+                  `${statusTarget.record.minutes.toLocaleString()} minutes (${fmtDays(statusTarget.record.days)} VL days). ` +
+                  (statusTarget.status === "apply"
+                    ? "It will be deducted from the employee's VL now."
+                    : statusTarget.status === "excluded"
+                      ? "It will charge nothing and stay out of future re-imports."
+                      : `It will be set to ${RECORD_STATUS_LABELS[statusTarget.status]}.`)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmStatus} disabled={busyId !== null}>
+              {statusTarget?.status === "apply"
+                ? "Charge to VL"
+                : statusTarget?.status === "excluded"
+                  ? "Exclude"
+                  : "Confirm"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
