@@ -19,6 +19,14 @@ import {
 } from "@/lib/leave-credits-helpers";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 import { chargedToCode, insufficientCreditsError, paidLeaveCapacity } from "@/lib/leave-charging";
+import {
+  MONETIZATION_DETAILS,
+  isMonetizationType,
+  monetizationAmount,
+  monetizationCharge,
+  monetizationError,
+  type MonetizationType,
+} from "@/lib/leave-monetization";
 
 // The OCM-owner rule lives in src/lib/ocm-filing.ts, shared with the CTO module
 // and with both approval UIs, and is unit-tested there. This wrapper only puts
@@ -81,6 +89,11 @@ export interface LeaveApplicationWithRelations {
   rejection_reason: string | null;
   created_by: string | null;
   date_filed: string | null;
+  /** NULL for ordinary leave; set for a monetization of leave credits (migration 109). */
+  monetization_type: MonetizationType | null;
+  /** SL days charged by a special monetization; days_with_pay is the VL portion. */
+  sl_days_with_pay: number;
+  monetization_monthly_salary: number | null;
   created_at: string;
   updated_at: string;
   employees: {
@@ -294,7 +307,7 @@ export async function getPaidUsageBeforeApplication(
   const { data: siblings, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, leave_type_id, days_with_pay, start_date, created_at")
+    .select("id, leave_type_id, days_with_pay, sl_days_with_pay, start_date, created_at")
     .eq("employee_id", target.employee_id)
     .eq("status", "approved");
   if (error) throw error;
@@ -328,6 +341,10 @@ export async function getPaidUsageBeforeApplication(
     usage[s.leave_type_id] = (usage[s.leave_type_id] ?? 0) + days;
     const chargedId = idByCode.get(chargedToCode(codeById.get(s.leave_type_id)) ?? "");
     if (chargedId) usage[chargedId] = (usage[chargedId] ?? 0) + days;
+    // Special monetization's SL portion (migration 109).
+    const slDays = Number(s.sl_days_with_pay ?? 0);
+    const slId = idByCode.get("SL");
+    if (slDays > 0 && slId) usage[slId] = (usage[slId] ?? 0) + slDays;
   }
   return usage;
 }
@@ -600,6 +617,56 @@ export async function getLeaveApplicationById(id: string) {
   return data as LeaveApplicationWithRelations;
 }
 
+/**
+ * Why `user` may not file leave for `employeeId`, or null. Shared by ordinary
+ * leave and monetization filing.
+ */
+async function leaveFilerError(
+  supabase: ReturnType<typeof createAdminClient>,
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
+  employeeId: string,
+): Promise<string | null> {
+  // Composite Dept Admin + Head can file leave for any employee in any
+  // department, so no dept-scoped restriction is applied below.
+  if (
+    isDeptHead(user.role) &&
+    !isCompositeDeptAdminHead(user.role) &&
+    user.departmentId
+  ) {
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) {
+      return "Insufficient permissions";
+    }
+  }
+
+  // Department Admins can only file leave for plantilla employees in their own department.
+  // (The composite dept_admin+head role takes the dept_head path above, which is broader.)
+  if (user.role === "department_admin") {
+    if (!user.departmentId) {
+      return "Department Admin must be assigned to a department";
+    }
+    const { data: target } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id, employment_type")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!target) return "Employee not found";
+    if (target.department_id !== user.departmentId) {
+      return "Department Admins can only file leave for employees in their department";
+    }
+    if (target.employment_type !== "plantilla") {
+      return "Department Admins can only file leave for plantilla employees";
+    }
+  }
+  return null;
+}
+
 export async function createLeaveApplication(input: {
   employee_id: string;
   leave_type_id: string;
@@ -627,44 +694,8 @@ export async function createLeaveApplication(input: {
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
 
-  // Composite Dept Admin + Head can file leave for any employee in any
-  // department, so no dept-scoped restriction is applied below.
-  if (
-    isDeptHead(user.role) &&
-    !isCompositeDeptAdminHead(user.role) &&
-    user.departmentId
-  ) {
-    const { data: emp } = await supabase
-      .schema("hris")
-      .from("employees")
-      .select("department_id")
-      .eq("id", input.employee_id)
-      .maybeSingle();
-    if (!emp || emp.department_id !== user.departmentId) {
-      return { error: "Insufficient permissions" };
-    }
-  }
-
-  // Department Admins can only file leave for plantilla employees in their own department.
-  // (The composite dept_admin+head role takes the dept_head path above, which is broader.)
-  if (user.role === "department_admin") {
-    if (!user.departmentId) {
-      return { error: "Department Admin must be assigned to a department" };
-    }
-    const { data: target } = await supabase
-      .schema("hris")
-      .from("employees")
-      .select("department_id, employment_type")
-      .eq("id", input.employee_id)
-      .maybeSingle();
-    if (!target) return { error: "Employee not found" };
-    if (target.department_id !== user.departmentId) {
-      return { error: "Department Admins can only file leave for employees in their department" };
-    }
-    if (target.employment_type !== "plantilla") {
-      return { error: "Department Admins can only file leave for plantilla employees" };
-    }
-  }
+  const filerError = await leaveFilerError(supabase, user, input.employee_id);
+  if (filerError) return { error: filerError };
 
   const { data: leaveType } = await supabase
     .schema("hris")
@@ -701,6 +732,7 @@ export async function createLeaveApplication(input: {
       .from("leave_applications")
       .select("leave_dates")
       .eq("employee_id", input.employee_id)
+      .is("monetization_type", null)
       .in("status", ["pending", "approved"])
       .lte("start_date", input.end_date)
       .gte("end_date", input.start_date);
@@ -719,6 +751,7 @@ export async function createLeaveApplication(input: {
       .from("leave_applications")
       .select("id")
       .eq("employee_id", input.employee_id)
+      .is("monetization_type", null)
       .in("status", ["pending", "approved"])
       .lte("start_date", input.end_date)
       .gte("end_date", input.start_date)
@@ -766,6 +799,222 @@ export async function createLeaveApplication(input: {
       commutation_requested: input.commutation_requested ?? false,
       reason: input.reason,
       date_filed: dateFiled ?? null,
+      filed_by_role: user.role,
+      filed_by_roles: user.roles,
+    },
+  });
+
+  revalidatePath("/leaves");
+  return { data };
+}
+
+// ── Monetization of Leave Credits (CSC MC 41 s.1998, §22–23) ───────
+//
+// Filed as a VL leave application with a monetization_type and no leave
+// dates (start = end = date of filing, which sets the credit year). Rules
+// live in src/lib/leave-monetization.ts; the balance view charges
+// days_with_pay to VL and sl_days_with_pay to SL (migration 109).
+
+export interface MonetizationContext {
+  vlBalance: number;
+  slBalance: number;
+  /** Regular monetization days filed this year (approved or pending). */
+  regularDaysThisYear: number;
+  monthlySalary: number | null;
+}
+
+async function loadMonetizationState(
+  supabase: ReturnType<typeof createAdminClient>,
+  employeeId: string,
+  year: number,
+  excludeId?: string,
+) {
+  const [{ data: balances, error: balErr }, { data: filed, error: filedErr }] = await Promise.all([
+    supabase
+      .schema("hris")
+      .from("leave_credit_balances")
+      .select("balance, leave_types(code)")
+      .eq("employee_id", employeeId)
+      .eq("year", year),
+    supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("id, days_applied")
+      .eq("employee_id", employeeId)
+      .eq("monetization_type", "regular")
+      .in("status", ["pending", "approved"])
+      .gte("start_date", `${year}-01-01`)
+      .lte("start_date", `${year}-12-31`),
+  ]);
+  if (balErr) throw balErr;
+  if (filedErr) throw filedErr;
+
+  const byCode = new Map<string, number>();
+  for (const row of balances ?? []) {
+    const lt = Array.isArray(row.leave_types) ? row.leave_types[0] : row.leave_types;
+    if (lt?.code) byCode.set(lt.code, Number(row.balance));
+  }
+  const regularDaysThisYear = (filed ?? [])
+    .filter((r) => r.id !== excludeId)
+    .reduce((sum, r) => sum + Number(r.days_applied), 0);
+  return {
+    vlBalance: byCode.get("VL") ?? 0,
+    slBalance: byCode.get("SL") ?? 0,
+    regularDaysThisYear,
+  };
+}
+
+/** Salary on `onDate` from salary_history (the source of truth), or null. */
+async function monthlySalaryOn(
+  supabase: ReturnType<typeof createAdminClient>,
+  employeeId: string,
+  onDate: string,
+): Promise<number | null> {
+  const { data } = await supabase
+    .schema("hris")
+    .from("salary_history")
+    .select("salary_amount")
+    .eq("employee_id", employeeId)
+    .lte("effective_date", onDate)
+    .order("effective_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ? Number(data.salary_amount) : null;
+}
+
+/** Employees may only monetize their own credits. */
+async function ownEmployeeError(
+  supabase: ReturnType<typeof createAdminClient>,
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
+  employeeId: string,
+): Promise<string | null> {
+  if (user.role !== "employee") return null;
+  const { data: emp } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("id")
+    .eq("user_profile_id", user.id)
+    .maybeSingle();
+  return emp?.id === employeeId ? null : "Insufficient permissions";
+}
+
+/** Balances, yearly usage and salary the monetization form needs. */
+export async function getMonetizationContext(
+  employeeId: string,
+  dateFiled?: string | null,
+): Promise<MonetizationContext | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  const supabase = createAdminClient();
+  const permError =
+    (await ownEmployeeError(supabase, user, employeeId)) ??
+    (await leaveFilerError(supabase, user, employeeId));
+  if (permError) return { error: permError };
+
+  const onDate = dateFiled || manilaToday();
+  const year = Number(onDate.slice(0, 4));
+  const [state, monthlySalary] = await Promise.all([
+    loadMonetizationState(supabase, employeeId, year),
+    monthlySalaryOn(supabase, employeeId, onDate),
+  ]);
+  return { ...state, monthlySalary };
+}
+
+export async function createLeaveMonetization(input: {
+  employee_id: string;
+  monetization_type: MonetizationType;
+  days: number;
+  /** Required for special monetization: the §23 justifiable reason. */
+  reason: string | null;
+  date_filed?: string | null;
+}) {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  if (!isMonetizationType(input.monetization_type)) return { error: "Choose regular or special monetization" };
+
+  const dateFiled = input.date_filed || null;
+  if (dateFiled) {
+    if (!canChangeLeaveDateFiled(user.roles)) {
+      return { error: "Only a Super Admin, HR Admin or OCM Admin can change the date of filing" };
+    }
+    const dateError = dateFiledError(dateFiled, manilaToday());
+    if (dateError) return { error: dateError };
+  }
+
+  const reason = (input.reason ?? "").trim();
+  if (input.monetization_type === "special" && !reason) {
+    return { error: "Special monetization needs a justifiable reason (CSC MC 41 s.1998, §23)" };
+  }
+
+  const supabase = createAdminClient();
+  const permError =
+    (await ownEmployeeError(supabase, user, input.employee_id)) ??
+    (await leaveFilerError(supabase, user, input.employee_id));
+  if (permError) return { error: permError };
+
+  const { data: vlType } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("id")
+    .eq("code", "VL")
+    .single();
+  if (!vlType) return { error: "Vacation Leave type is missing" };
+
+  const filedOn = dateFiled ?? manilaToday();
+  const year = Number(filedOn.slice(0, 4));
+  const days = Number(input.days);
+  const [state, monthlySalary] = await Promise.all([
+    loadMonetizationState(supabase, input.employee_id, year),
+    monthlySalaryOn(supabase, input.employee_id, filedOn),
+  ]);
+  const ruleError = monetizationError({ type: input.monetization_type, days, ...state });
+  if (ruleError) return { error: ruleError };
+  const charge = monetizationCharge(input.monetization_type, days, state.vlBalance);
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .insert({
+      employee_id: input.employee_id,
+      leave_type_id: vlType.id,
+      start_date: filedOn,
+      end_date: filedOn,
+      leave_dates: [],
+      days_applied: days,
+      days_with_pay: charge.vlDays,
+      sl_days_with_pay: charge.slDays,
+      monetization_type: input.monetization_type,
+      monetization_monthly_salary: monthlySalary,
+      details_of_leave: MONETIZATION_DETAILS,
+      commutation_requested: true,
+      reason: reason || null,
+      ...(dateFiled ? { date_filed: dateFiled } : {}),
+      status: "pending",
+      created_by: user.id,
+    })
+    .select()
+    .single();
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "create_leave_monetization",
+    tableName: "leave_applications",
+    recordId: data.id,
+    newValues: {
+      employee_id: input.employee_id,
+      monetization_type: input.monetization_type,
+      days_applied: days,
+      vl_days: charge.vlDays,
+      sl_days: charge.slDays,
+      vl_balance: state.vlBalance,
+      sl_balance: state.slBalance,
+      monthly_salary: monthlySalary,
+      estimated_amount: monthlySalary != null ? monetizationAmount(monthlySalary, days) : null,
+      reason: reason || null,
+      date_filed: dateFiled,
       filed_by_role: user.role,
       filed_by_roles: user.roles,
     },
@@ -965,7 +1214,7 @@ export async function overrideApprovedLeaveDaysWithPay(
     .schema("hris")
     .from("leave_applications")
     .select(
-      "employee_id, leave_type_id, status, start_date, end_date, days_applied, days_with_pay, leave_types(code)"
+      "employee_id, leave_type_id, status, start_date, end_date, days_applied, days_with_pay, monetization_type, leave_types(code)"
     )
     .eq("id", id)
     .single();
@@ -973,6 +1222,8 @@ export async function overrideApprovedLeaveDaysWithPay(
   if (!app) return { error: "Application not found" };
   if (app.status !== "approved")
     return { error: "Only approved leaves can be overridden" };
+  if (app.monetization_type)
+    return { error: "A monetization has no leave without pay to override" };
 
   const daysApplied = Number(app.days_applied);
   if (newDaysWithPay > daysApplied)
@@ -1162,30 +1413,55 @@ export async function approveLeave(id: string) {
       return { error: "Department head must approve this leave first" };
     }
 
-    // Recompute days_with_pay from the current credit balance. The view
-    // excludes pending leaves, so the lookup balance represents what's
-    // available before this application gets approved. This corrects stale
-    // values when credits were seeded/imported after the leave was filed.
-    const appYear = new Date(app.start_date).getFullYear();
-    const availableBalance = await getPaidLeaveCapacity(
-      supabase,
-      app.employee_id,
-      app.leave_type_id,
-      appYear,
-    );
-    // Same rule as filing: only VL and SL may spill into leave without pay.
-    // Another approved leave (e.g. a second pending SPL) may have used the
-    // credits since this one was filed.
-    const creditsError = insufficientCreditsError(
-      leaveTypeCode,
-      leaveTypeInfo?.name,
-      Number(app.days_applied),
-      availableBalance,
-    );
-    if (creditsError) {
-      return { error: `${creditsError} Reject this application or adjust the employee's credits first.` };
+    // Monetization: re-check the CSC rules against today's balances (another
+    // leave or monetization may have been approved since filing) and re-split
+    // the days between VL and SL. There is no leave without pay.
+    let newSlDaysWithPay = Number(app.sl_days_with_pay ?? 0);
+    let newDaysWithPay: number;
+    if (isMonetizationType(app.monetization_type)) {
+      const state = await loadMonetizationState(
+        supabase,
+        app.employee_id,
+        new Date(app.start_date).getFullYear(),
+        app.id,
+      );
+      const ruleError = monetizationError({
+        type: app.monetization_type,
+        days: Number(app.days_applied),
+        ...state,
+      });
+      if (ruleError) {
+        return { error: `${ruleError} Reject this application or adjust the employee's credits first.` };
+      }
+      const charge = monetizationCharge(app.monetization_type, Number(app.days_applied), state.vlBalance);
+      newDaysWithPay = charge.vlDays;
+      newSlDaysWithPay = charge.slDays;
+    } else {
+      // Recompute days_with_pay from the current credit balance. The view
+      // excludes pending leaves, so the lookup balance represents what's
+      // available before this application gets approved. This corrects stale
+      // values when credits were seeded/imported after the leave was filed.
+      const appYear = new Date(app.start_date).getFullYear();
+      const availableBalance = await getPaidLeaveCapacity(
+        supabase,
+        app.employee_id,
+        app.leave_type_id,
+        appYear,
+      );
+      // Same rule as filing: only VL and SL may spill into leave without pay.
+      // Another approved leave (e.g. a second pending SPL) may have used the
+      // credits since this one was filed.
+      const creditsError = insufficientCreditsError(
+        leaveTypeCode,
+        leaveTypeInfo?.name,
+        Number(app.days_applied),
+        availableBalance,
+      );
+      if (creditsError) {
+        return { error: `${creditsError} Reject this application or adjust the employee's credits first.` };
+      }
+      newDaysWithPay = Math.min(Number(app.days_applied), availableBalance);
     }
-    const newDaysWithPay = Math.min(Number(app.days_applied), availableBalance);
 
     const approvedAt = new Date().toISOString();
     const { error } = await supabase
@@ -1194,6 +1470,7 @@ export async function approveLeave(id: string) {
       .update({
         status: "approved",
         days_with_pay: newDaysWithPay,
+        sl_days_with_pay: newSlDaysWithPay,
         hr_reviewer_id: user.id,
         hr_approved_at: approvedAt,
         updated_at: approvedAt,
@@ -1231,6 +1508,8 @@ export async function approveLeave(id: string) {
         end_date: app.end_date,
         days_applied: app.days_applied,
         days_with_pay: newDaysWithPay,
+        sl_days_with_pay: newSlDaysWithPay,
+        monetization_type: app.monetization_type ?? null,
         dept_approved_at: app.dept_approved_at,
         dept_approved_by_id: app.department_head_id,
       },
@@ -1378,6 +1657,8 @@ export interface LeaveLedgerEntry {
   end_date: string;
   days_applied: number;
   days_with_pay: number;
+  sl_days_with_pay: number;
+  monetization_type: MonetizationType | null;
   status: string;
   date_filed: string | null;
   created_at: string;
@@ -1411,7 +1692,7 @@ export async function getLeaveLedger(employeeId: string, year: number) {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, status, date_filed, created_at, leave_types(code, name)")
+    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, sl_days_with_pay, monetization_type, status, date_filed, created_at, leave_types(code, name)")
     .eq("employee_id", employeeId)
     .gte("start_date", startOfYear)
     .lte("start_date", endOfYear)

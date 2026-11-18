@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/leave-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { LeaveLedgerClient } from "@/components/leaves/leave-ledger-client";
+import { leaveDisplayName, paidDaysOf } from "@/lib/leave-monetization";
 
 export default async function LeaveLedgerPage({
   searchParams,
@@ -84,14 +85,14 @@ export default async function LeaveLedgerPage({
         selectedEmployeeId={employee_id ?? null}
         year={year}
         ledgerData={ledger.map((entry) => {
-          const daysWithPay = Number(entry.days_with_pay ?? entry.days_applied);
+          const daysWithPay = paidDaysOf(entry);
           const daysWithoutPay = Math.max(
             0,
             Number(entry.days_applied) - daysWithPay,
           );
           return {
             id: entry.id,
-            leave_type: entry.leave_types?.name ?? "Unknown",
+            leave_type: leaveDisplayName(entry.leave_types?.name, entry.monetization_type),
             leave_code: entry.leave_types?.code ?? "",
             start_date: entry.start_date,
             end_date: entry.end_date,
@@ -285,9 +286,7 @@ export default async function LeaveLedgerPage({
                     {ledger.map((entry) => {
                       const fmt3 = (n: number) =>
                         parseFloat(Number(n).toFixed(3)).toString();
-                      const daysWithPay = Number(
-                        entry.days_with_pay ?? entry.days_applied,
-                      );
+                      const daysWithPay = paidDaysOf(entry);
                       const daysWithoutPay = Math.max(
                         0,
                         Number(entry.days_applied) - daysWithPay,
@@ -296,7 +295,7 @@ export default async function LeaveLedgerPage({
                         <TableRow key={entry.id}>
                           <TableCell>
                             <div>
-                              <p className="font-medium">{entry.leave_types?.name ?? "—"}</p>
+                              <p className="font-medium">{leaveDisplayName(entry.leave_types?.name, entry.monetization_type)}</p>
                               <p className="text-xs text-muted-foreground">{entry.leave_types?.code ?? ""}</p>
                             </div>
                           </TableCell>

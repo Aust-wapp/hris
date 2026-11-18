@@ -44,6 +44,8 @@ interface LeaveApprovalActionsProps {
   /** The code whose credits this leave also consumes (FL → VL), if any. */
   chargedToCode?: string | null;
   leaveTypeCode?: string | null;
+  /** Monetizations have no leave without pay, so the paid-days override is hidden. */
+  isMonetization?: boolean;
   /** When non-null, the leave was filed by an OCM Admin and is owned by this
    *  user: department-scoped accounts get no approval/reject buttons. HR Admin,
    *  Super Admin and the other OCM Admins are exempt. */
@@ -61,6 +63,7 @@ export function LeaveApprovalActions({
   creditBalance,
   chargedToCode,
   leaveTypeCode,
+  isMonetization = false,
   restrictToUserId,
 }: LeaveApprovalActionsProps) {
   const router = useRouter();
@@ -104,6 +107,7 @@ export function LeaveApprovalActions({
   // a leave originally recorded as LWOP because credits were unreconciled).
   const canOverridePaid =
     status === "approved" &&
+    !isMonetization &&
     hasRole(user.roles, "super_admin") &&
     typeof daysApplied === "number" &&
     typeof daysWithPay === "number";

@@ -142,6 +142,7 @@ async function buildPlan(supabase: Admin, file: File): Promise<ExternalPlan> {
     supabase.schema("hris").from("leave_applications")
       .select("employee_id, start_date, end_date")
       .eq("status", "approved")
+      .is("monetization_type", null)
       .lte("start_date", to)
       .gte("end_date", from)
       .order("id"),

@@ -76,7 +76,11 @@ export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButto
   const vlTotalEarned = earnedAsOfFiling(vlCredit);
   const slTotalEarned = earnedAsOfFiling(slCredit);
   const vlBalanceAfter = vlTotalEarned - (debitsVl ? daysWithPay : 0);
-  const slBalanceAfter = slTotalEarned - (debitsSl ? daysWithPay : 0);
+  // A special monetization also charges SL once VL is used up (migration 109).
+  const isMonetization = !!leave.monetization_type;
+  const slDaysWithPay = Number(leave.sl_days_with_pay ?? 0);
+  const slBalanceAfter =
+    slTotalEarned - (debitsSl ? daysWithPay : 0) - (isMonetization ? slDaysWithPay : 0);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -123,6 +127,8 @@ export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButto
           endDate={leave.end_date}
           daysApplied={leave.days_applied}
           daysWithPay={daysWithPay}
+          isMonetization={isMonetization}
+          slDaysWithPay={slDaysWithPay}
           reason={leave.reason}
           detailsOfLeave={leave.details_of_leave}
           commutationRequested={leave.commutation_requested}
@@ -146,7 +152,7 @@ export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButto
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Leave-Form6-${leave.start_date}.pdf`;
+      link.download = `${isMonetization ? "Monetization" : "Leave"}-Form6-${leave.start_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
       setOpen(false);

@@ -29,6 +29,13 @@ import { isDeptScoped } from "@/lib/auth-helpers";
 import { ocmFilingOwnerId } from "@/lib/ocm-filing";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { chargedToCode, paidLeaveCapacity } from "@/lib/leave-charging";
+import {
+  MONETIZATION_TYPE_LABELS,
+  formatPeso,
+  isMonetizationType,
+  monetizationAmount,
+  monetizationCharge,
+} from "@/lib/leave-monetization";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
 import { LeaveAuditTrail } from "@/components/leaves/leave-audit-trail";
@@ -98,6 +105,28 @@ export default async function LeaveDetailPage({
     : Number(leave.days_with_pay ?? leave.days_applied);
   const liveDaysWithoutPay = Math.max(0, Number(leave.days_applied) - liveDaysWithPay);
 
+  // Monetization of leave credits (migration 109): no dates and no LWOP; the
+  // days split VL first, then SL (special only). Pending ones are re-split
+  // against today's VL balance, as approval will.
+  const monetizationType = isMonetizationType(leave.monetization_type)
+    ? leave.monetization_type
+    : null;
+  const vlCredit = allCredits.find((c) => c.leave_types?.code === "VL");
+  const monetizationSplit = monetizationType
+    ? showProjection
+      ? monetizationCharge(
+          monetizationType,
+          Number(leave.days_applied),
+          vlCredit ? Number(vlCredit.balance) : 0,
+        )
+      : {
+          vlDays: Number(leave.days_with_pay ?? 0),
+          slDays: Number(leave.sl_days_with_pay ?? 0),
+        }
+    : null;
+  const monthlySalary =
+    leave.monetization_monthly_salary != null ? Number(leave.monetization_monthly_salary) : null;
+
   // Cancellation is allowed while the application is still in flight — i.e.
   // status is "pending", which covers both pre- and post-dept-head approval.
   // Permission mirrors the server-side rule in cancelLeaveApplication: a leave
@@ -132,7 +161,9 @@ export default async function LeaveDetailPage({
         </Link>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Leave Application</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {monetizationType ? "Monetization of Leave Credits" : "Leave Application"}
+            </h1>
             <Badge variant={statusVariant[leave.status] ?? "outline"}>
               {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
             </Badge>
@@ -157,6 +188,7 @@ export default async function LeaveDetailPage({
             user={user}
             daysApplied={Number(leave.days_applied)}
             daysWithPay={Number(leave.days_with_pay ?? 0)}
+            isMonetization={!!monetizationType}
             creditBalance={creditCapacity}
             chargedToCode={chargedCode}
             leaveTypeCode={leave.leave_types?.code ?? null}
@@ -203,6 +235,34 @@ export default async function LeaveDetailPage({
         <Card>
           <CardHeader><CardTitle className="text-base">Leave Details</CardTitle></CardHeader>
           <CardContent className="divide-y">
+            {monetizationType && monetizationSplit ? (
+              <>
+                <InfoRow label="Type" value={MONETIZATION_TYPE_LABELS[monetizationType]} />
+                <InfoRow label="Days to Monetize" value={`${leave.days_applied} day(s)`} />
+                <InfoRow
+                  label={showProjection ? "Charged to (if approved now)" : "Charged to"}
+                  value={
+                    `VL ${monetizationSplit.vlDays}` +
+                    (monetizationSplit.slDays > 0 ? `, SL ${monetizationSplit.slDays}` : "")
+                  }
+                />
+                <InfoRow
+                  label="Monthly Salary"
+                  value={monthlySalary != null ? formatPeso(monthlySalary) : "Not on record"}
+                />
+                <InfoRow
+                  label="Estimated Amount"
+                  value={
+                    monthlySalary != null
+                      ? `${formatPeso(monetizationAmount(monthlySalary, Number(leave.days_applied)))} (salary × days × 0.0481927)`
+                      : null
+                  }
+                />
+                <InfoRow label="Commutation" value="Requested" />
+                {leave.reason && <InfoRow label="Reason" value={leave.reason} />}
+              </>
+            ) : (
+            <>
             <InfoRow label="Leave Type" value={leave.leave_types ? `${leave.leave_types.name} (${leave.leave_types.code})` : null} />
             <InfoRow
               label="Inclusive Dates"
@@ -216,6 +276,8 @@ export default async function LeaveDetailPage({
             {leave.details_of_leave && <InfoRow label="Details of Leave" value={leave.details_of_leave} />}
             <InfoRow label="Commutation" value={leave.commutation_requested ? "Requested" : "Not Requested"} />
             {leave.reason && <InfoRow label="Reason" value={leave.reason} />}
+            </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -267,7 +329,17 @@ export default async function LeaveDetailPage({
                       (isRequested ||
                         (!!chargedCode && c.leave_types?.code === chargedCode));
                     const used = Number(c.used_credits);
-                    const thisApplication = projectThisRow ? liveDaysWithPay : 0;
+                    const thisApplication = !showProjection
+                      ? 0
+                      : monetizationSplit
+                        ? c.leave_types?.code === "VL"
+                          ? monetizationSplit.vlDays
+                          : c.leave_types?.code === "SL"
+                            ? monetizationSplit.slDays
+                            : 0
+                        : projectThisRow
+                          ? liveDaysWithPay
+                          : 0;
                     const balance = Number(c.balance) - thisApplication;
                     return (
                       <TableRow
@@ -323,7 +395,7 @@ export default async function LeaveDetailPage({
               </TableBody>
             </Table>
           )}
-          {showProjection && liveDaysWithoutPay > 0 && (
+          {showProjection && !monetizationType && liveDaysWithoutPay > 0 && (
             <p className="mt-3 text-sm text-amber-700 dark:text-amber-500">
               Note: {liveDaysWithoutPay} day(s) will be leave without pay
               (excess over available credits).

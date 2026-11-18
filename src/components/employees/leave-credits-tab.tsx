@@ -30,6 +30,7 @@ import type {
   LeaveLedgerEntry,
   LeaveTypeRow,
 } from "@/lib/actions/leave-actions";
+import { leaveDisplayName, paidDaysOf } from "@/lib/leave-monetization";
 
 interface LeaveCreditWithType {
   id: string;
@@ -456,9 +457,7 @@ export function LeaveCreditsTab({
               </TableHeader>
               <TableBody>
                 {ledger.map((entry) => {
-                  const daysWithPay = Number(
-                    entry.days_with_pay ?? entry.days_applied
-                  );
+                  const daysWithPay = paidDaysOf(entry);
                   const daysWithoutPay = Math.max(
                     0,
                     Number(entry.days_applied) - daysWithPay
@@ -471,7 +470,7 @@ export function LeaveCreditsTab({
                           className="block hover:underline"
                         >
                           <p className="font-medium">
-                            {entry.leave_types?.name ?? "—"}
+                            {leaveDisplayName(entry.leave_types?.name, entry.monetization_type)}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {entry.leave_types?.code ?? ""}

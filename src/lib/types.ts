@@ -233,6 +233,11 @@ export interface LeaveApplication {
   hr_approved_at: string | null;
   rejection_reason: string | null;
   date_filed: string | null;
+  /** Monetization of leave credits (migration 109); NULL for ordinary leave. */
+  monetization_type: "regular" | "special" | null;
+  /** SL days charged by a special monetization; days_with_pay is the VL portion. */
+  sl_days_with_pay: number;
+  monetization_monthly_salary: number | null;
   created_at: string;
   updated_at: string;
 }

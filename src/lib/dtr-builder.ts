@@ -400,6 +400,7 @@ export async function buildDtrResults(
       )
       .in("employee_id", empIds)
       .eq("status", "approved")
+      .is("monetization_type", null)
       .lte("start_date", endDate)
       .gte("end_date", startDate),
   ]);

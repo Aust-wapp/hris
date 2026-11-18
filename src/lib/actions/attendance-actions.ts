@@ -904,6 +904,7 @@ export async function getAttendanceReport(
       .select("employee_id, start_date, end_date, leave_dates")
       .in("employee_id", empIds)
       .eq("status", "approved")
+      .is("monetization_type", null)
       .lte("start_date", endDate)
       .gte("end_date", startDate),
   ]);

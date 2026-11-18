@@ -25,7 +25,19 @@ import {
 import { cn } from "@/lib/utils";
 import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import { commandSubstringFilter } from "@/lib/command-filter";
-import { createLeaveApplication } from "@/lib/actions/leave-actions";
+import {
+  createLeaveApplication,
+  createLeaveMonetization,
+  getMonetizationContext,
+  type MonetizationContext,
+} from "@/lib/actions/leave-actions";
+import {
+  EMPTY_MONETIZATION_DRAFT,
+  LeaveMonetizationSection,
+  monetizationDraftError,
+  monetizationReasonText,
+  type MonetizationDraft,
+} from "@/components/leaves/leave-monetization-section";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { LeaveTypeRow, LeaveCreditRow } from "@/lib/actions/leave-actions";
 import { chargedToCode, insufficientCreditsError, paidLeaveCapacity } from "@/lib/leave-charging";
@@ -81,6 +93,30 @@ export function LeaveApplicationForm({
 
   // Leave credits
   const [credits, setCredits] = useState<LeaveCreditRow[]>([]);
+
+  // "leave" files days off; "monetization" converts VL/SL credits to cash
+  // (CSC MC 41 s.1998, §22–23).
+  const [mode, setMode] = useState<"leave" | "monetization">("leave");
+  const [monetization, setMonetization] = useState<MonetizationDraft>(EMPTY_MONETIZATION_DRAFT);
+  const [monetizationCtx, setMonetizationCtx] = useState<MonetizationContext | null>(null);
+  const [monetizationCtxError, setMonetizationCtxError] = useState<string | null>(null);
+  const dateFiledStr = dateFiled ? format(dateFiled, "yyyy-MM-dd") : null;
+
+  useEffect(() => {
+    if (mode !== "monetization" || !selectedEmpId) return;
+    let cancelled = false;
+    setMonetizationCtx(null);
+    setMonetizationCtxError(null);
+    getMonetizationContext(selectedEmpId, dateFiledStr).then((res) => {
+      if (cancelled) return;
+      if ("error" in res) setMonetizationCtxError(res.error);
+      else setMonetizationCtx(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedEmpId, dateFiledStr]);
+  const monetizationError = monetizationDraftError(monetization, monetizationCtx);
 
   useEffect(() => {
     if (!selectedEmpId) {
@@ -160,8 +196,38 @@ export function LeaveApplicationForm({
     setRangeStart(null);
   }, [rangeStart]);
 
+  const submitMonetization = async () => {
+    if (!selectedEmpId) {
+      toast.error("Please select an employee.");
+      return;
+    }
+    if (monetizationError) {
+      toast.error(monetizationError);
+      return;
+    }
+    setLoading(true);
+    const result = await createLeaveMonetization({
+      employee_id: selectedEmpId,
+      monetization_type: monetization.type,
+      days: Number(monetization.days),
+      reason: monetizationReasonText(monetization),
+      date_filed: dateFiledStr,
+    });
+    if ("error" in result && result.error) {
+      toast.error(result.error);
+      setLoading(false);
+      return;
+    }
+    toast.success("Monetization application submitted.");
+    router.push(`/leaves/${result.data?.id}`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "monetization") {
+      await submitMonetization();
+      return;
+    }
     if (!selectedEmpId || !selectedLeaveTypeId || workingDays <= 0) {
       toast.error("Please fill in all required fields.");
       return;
@@ -251,6 +317,7 @@ export function LeaveApplicationForm({
                                   setEmpOpen(false);
                                   setSelectedLeaveTypeId("");
                                   setSelectedDates([]);
+                                  setMonetization(EMPTY_MONETIZATION_DRAFT);
                                 }}
                               >
                                 <Check className={cn("mr-2 h-4 w-4", selectedEmpId === emp.id ? "opacity-100" : "opacity-0")} />
@@ -313,10 +380,37 @@ export function LeaveApplicationForm({
           {/* Section 6: Details of Application */}
           {selectedEmpId && (
             <div className="border-b">
-              <div className="bg-muted/30 px-4 py-2 border-b">
+              <div className="bg-muted/30 px-4 py-2 border-b flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold tracking-wide">6. DETAILS OF APPLICATION</p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={mode === "leave" ? "default" : "outline"}
+                    onClick={() => setMode("leave")}
+                  >
+                    Leave
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={mode === "monetization" ? "default" : "outline"}
+                    onClick={() => setMode("monetization")}
+                  >
+                    Monetization
+                  </Button>
+                </div>
               </div>
 
+              {mode === "monetization" ? (
+                <LeaveMonetizationSection
+                  draft={monetization}
+                  onChange={setMonetization}
+                  context={monetizationCtx}
+                  contextError={monetizationCtxError}
+                />
+              ) : (
+              <>
               {/* 6.A Type of Leave */}
               <div className="px-4 py-3 border-b">
                 <Label className="text-xs text-muted-foreground mb-2 block">6.A TYPE OF LEAVE TO BE AVAILED OF</Label>
@@ -586,6 +680,8 @@ export function LeaveApplicationForm({
                   rows={2}
                 />
               </div>
+              </>
+              )}
             </div>
           )}
 
@@ -593,7 +689,13 @@ export function LeaveApplicationForm({
           <div className="px-6 py-4 flex gap-3">
             <Button
               type="submit"
-              disabled={loading || !selectedEmpId || !selectedLeaveTypeId || workingDays <= 0 || !!creditsError}
+              disabled={
+                loading ||
+                !selectedEmpId ||
+                (mode === "monetization"
+                  ? !!monetizationError
+                  : !selectedLeaveTypeId || workingDays <= 0 || !!creditsError)
+              }
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Submit Application

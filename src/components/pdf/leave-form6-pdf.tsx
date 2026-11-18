@@ -165,6 +165,13 @@ interface LeaveForm6PdfProps {
   commutationRequested: boolean;
   /** Days that consume leave credits (paid). The LWOP portion is `daysApplied - daysWithPay`. */
   daysWithPay: number;
+  /**
+   * Monetization of leave credits (§6.B "Other purpose"). No §6.A type is
+   * ticked and there are no inclusive dates; `daysWithPay` is the VL portion
+   * and `slDaysWithPay` the SL portion.
+   */
+  isMonetization?: boolean;
+  slDaysWithPay?: number;
   vlTotal: number;
   vlUsed: number;
   vlBalance: number;
@@ -292,6 +299,8 @@ export function LeaveForm6Pdf({
   endDate,
   daysApplied,
   daysWithPay,
+  isMonetization = false,
+  slDaysWithPay = 0,
   reason: _reason,
   detailsOfLeave,
   commutationRequested,
@@ -315,7 +324,7 @@ export function LeaveForm6Pdf({
   signatoryFinal,
   signatoryFinalPosition,
 }: LeaveForm6PdfProps) {
-  const isCode = (code: string) => leaveTypeCode === code;
+  const isCode = (code: string) => !isMonetization && leaveTypeCode === code;
   const { last, first, middle } = splitName(employeeName, middleName);
   // Name extension (Jr., Sr., III) prints after the middle name.
   const middleWithSuffix = suffix?.trim() ? `${middle} ${suffix.trim()}`.trim() : middle;
@@ -341,8 +350,9 @@ export function LeaveForm6Pdf({
     : "";
   const selSpec = isCode("SEL") ? detailsOfLeave ?? "" : "";
 
-  const inclusiveDates =
-    leaveDates.length > 0
+  const inclusiveDates = isMonetization
+    ? "Not applicable (monetization)"
+    : leaveDates.length > 0
       ? leaveDates.length <= 14
         ? formatGroupedLeaveDates(leaveDates)
         : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
@@ -354,11 +364,14 @@ export function LeaveForm6Pdf({
   // Only the paid portion (daysWithPay) consumes credits; the LWOP portion is
   // shown separately under §7.C.
   const lessVl = debitsCredit(leaveTypeCode, "VL") ? daysWithPay : 0;
-  const lessSl = debitsCredit(leaveTypeCode, "SL") ? daysWithPay : 0;
+  const lessSl = isMonetization
+    ? slDaysWithPay
+    : debitsCredit(leaveTypeCode, "SL") ? daysWithPay : 0;
+  const totalPaid = daysWithPay + (isMonetization ? slDaysWithPay : 0);
   // Types without their own checkbox on the form (e.g. Wellness Leave) are
   // written on the "Others:" line.
-  const othersText = FORM6_CHECKBOX_CODES.has(leaveTypeCode) ? "" : leaveType;
-  const daysWithoutPay = Math.max(0, daysApplied - daysWithPay);
+  const othersText = isMonetization || FORM6_CHECKBOX_CODES.has(leaveTypeCode) ? "" : leaveType;
+  const daysWithoutPay = Math.max(0, daysApplied - totalPaid);
   // Trim float artifacts (e.g. 5.806999999) to at most 3 decimal places.
   const fmt3 = (n: number) =>
     n === 0 ? "" : parseFloat(n.toFixed(3)).toString();
@@ -608,7 +621,7 @@ export function LeaveForm6Pdf({
               <CheckLine checked={false} main="BAR/Board Examination Review" />
 
               <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>Other purpose:</Text>
-              <CheckLine checked={false} main="Monetization of Leave Credits" />
+              <CheckLine checked={isMonetization} main="Monetization of Leave Credits" />
               <CheckLine checked={false} main="Terminal Leave" />
             </View>
           </View>
@@ -739,7 +752,7 @@ export function LeaveForm6Pdf({
               <Text style={s.cellLabelBold}>7.C APPROVED FOR:</Text>
               <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
                 <Text style={{ borderBottom: HAIR, width: 50, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center" }}>
-                  {status === "approved" ? fmt3(daysWithPay) : " "}
+                  {status === "approved" ? fmt3(totalPaid) : " "}
                 </Text>
                 <Text style={{ fontSize: 8.5, marginLeft: 4 }}>days with pay</Text>
               </View>

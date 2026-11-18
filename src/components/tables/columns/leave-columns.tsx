@@ -10,6 +10,7 @@ import { formatManilaLongDate } from "@/lib/format-date";
 import { leaveFiledOn } from "@/lib/leave-date-filed";
 import { AlertTriangle, Eye } from "lucide-react";
 import type { LeaveApplicationWithRelations } from "@/lib/actions/leave-actions";
+import { leaveDisplayName } from "@/lib/leave-monetization";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   pending: "secondary",
@@ -83,7 +84,7 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
       const appliedAt = leaveFiledOn(row.original);
       return lt ? (
         <div>
-          <p className="font-medium">{lt.name}</p>
+          <p className="font-medium">{leaveDisplayName(lt.name, row.original.monetization_type)}</p>
           <p className="text-xs text-muted-foreground">{lt.code}</p>
           {appliedAt && (
             <p className="text-xs text-muted-foreground">
@@ -98,12 +99,15 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
   {
     id: "date_range",
     header: "Date Range",
-    cell: ({ row }) => (
-      <span className="text-sm">
-        {format(new Date(row.original.start_date), "MMM d")} –{" "}
-        {format(new Date(row.original.end_date), "MMM d, yyyy")}
-      </span>
-    ),
+    cell: ({ row }) =>
+      row.original.monetization_type ? (
+        <span className="text-sm text-muted-foreground">—</span>
+      ) : (
+        <span className="text-sm">
+          {format(new Date(row.original.start_date), "MMM d")} –{" "}
+          {format(new Date(row.original.end_date), "MMM d, yyyy")}
+        </span>
+      ),
   },
   {
     accessorKey: "days_applied",
