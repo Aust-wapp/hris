@@ -153,6 +153,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
       is_active: true,
       can_access_attendance_corrections: true,
       can_manage_module_payroll: true,
+      can_access_dtr_creator: false,
     },
   });
 
@@ -161,6 +162,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
   const watchActive = watch("is_active");
   const watchCorrections = watch("can_access_attendance_corrections");
   const watchModulePayroll = watch("can_manage_module_payroll");
+  const watchDtrCreator = watch("can_access_dtr_creator");
 
   // The switch is a Department Admin concern only: every other role's reach
   // over corrections is settled by the role itself (reviewers, the direct-apply
@@ -332,6 +334,32 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
                   <p className="text-sm text-muted-foreground">
                     Lets this Department Admin file attendance correction
                     requests for their department. Unchecked, the module is
+                    hidden and the route is closed to them.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {showCorrectionsToggle && (
+              <div className="flex items-start gap-3 rounded-lg border p-3 mt-3">
+                <Checkbox
+                  id="can_access_dtr_creator"
+                  checked={watchDtrCreator}
+                  onCheckedChange={(checked) =>
+                    setValue("can_access_dtr_creator", checked, {
+                      shouldValidate: true,
+                    })
+                  }
+                  className="mt-0.5"
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="can_access_dtr_creator" className="font-normal">
+                    Can access DTR Creator
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Lets this Department Admin create attendance for several
+                    employees of their department at once. It applies
+                    immediately, with no HR approval. Unchecked, the module is
                     hidden and the route is closed to them.
                   </p>
                 </div>

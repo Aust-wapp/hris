@@ -20,6 +20,8 @@ export interface CreateUserInput {
   can_access_attendance_corrections: boolean;
   /** Module managers (JO / COS) only — see migration 077. */
   can_manage_module_payroll: boolean;
+  /** Department Admin only — see migration 111. */
+  can_access_dtr_creator: boolean;
 }
 
 /** The roles the payroll switch qualifies — mirrors auth-helpers'. */
@@ -35,6 +37,16 @@ function correctionsAccessFor(input: CreateUserInput): boolean {
   return isDeptAdmin(input.roles as UserRole[])
     ? input.can_access_attendance_corrections
     : true;
+}
+
+// The DTR Creator switch qualifies the same roles, but it GRANTS a power, so an
+// account without a dept-admin role is written back as FALSE: a stale "on"
+// must not resurface if the role is given back later without anyone ticking
+// the box again.
+function dtrCreatorAccessFor(input: CreateUserInput): boolean {
+  return isDeptAdmin(input.roles as UserRole[])
+    ? input.can_access_dtr_creator
+    : false;
 }
 
 /** Same rule as correctionsAccessFor, for the module-manager payroll switch. */
@@ -131,6 +143,7 @@ export async function createUser(input: CreateUserInput) {
       is_active: input.is_active,
       can_access_attendance_corrections: correctionsAccessFor(input),
       can_manage_module_payroll: modulePayrollAccessFor(input),
+      can_access_dtr_creator: dtrCreatorAccessFor(input),
     })
     .select()
     .single();
@@ -179,6 +192,7 @@ export async function updateUser(input: UpdateUserInput) {
       is_active: input.is_active,
       can_access_attendance_corrections: correctionsAccessFor(input),
       can_manage_module_payroll: modulePayrollAccessFor(input),
+      can_access_dtr_creator: dtrCreatorAccessFor(input),
     })
     .eq("id", input.id)
     .select()

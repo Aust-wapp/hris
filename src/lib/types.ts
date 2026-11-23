@@ -82,6 +82,12 @@ export interface UserProfile {
    * src/lib/auth-helpers.ts (migration 077).
    */
   can_manage_module_payroll: boolean;
+  /**
+   * Department Admin only: may this account open the DTR Creator for its own
+   * department. Ignored for every other role — see canCreateDtr in
+   * src/lib/auth-helpers.ts (migration 111).
+   */
+  can_access_dtr_creator: boolean;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;

@@ -626,23 +626,20 @@ export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
 // pipeline as a direct-apply request, so editing one afterwards is an ordinary
 // attendance correction.
 //
-// Who: DTR Managers and Super Admins for any department, and the admin office
-// of the City Health Office for its own staff — a Department Admin account
-// assigned to the department whose code is DTR_CREATOR_DEPARTMENT_CODE. Keyed
-// on the department CODE rather than an id so the rule survives a local reset
-// and reads the same in every environment. Deliberately plain
-// "department_admin": the combined Department Admin + Head role is not named.
+// Who: DTR Managers and Super Admins for any department by role, and any
+// Department Admin (either dept-admin role — see isDeptAdmin) whose account has
+// user_profiles.can_access_dtr_creator ticked (migration 111), held to its own
+// department. Unlike the corrections switch the flag reads as OFF when
+// missing: this module applies attendance with no approval step, so access is
+// only ever granted deliberately.
 const DTR_CREATOR_ANY_DEPARTMENT_ROLES: readonly UserRole[] = [
   "super_admin",
   "dtr_manager",
 ] as const;
 
-export const DTR_CREATOR_DEPARTMENT_CODE = "CHO";
-
 export interface DtrCreatorActor {
   roles: RoleInput;
-  /** The code of the account's own department (user_profiles.department_id). */
-  departmentCode?: string | null;
+  canAccessDtrCreator?: boolean | null;
 }
 
 /** May pick any department in the DTR Creator. */
@@ -653,10 +650,7 @@ export function canCreateDtrAnyDepartment(role: RoleInput): boolean {
 /** May open the DTR Creator at all. Use for route and nav gating. */
 export function canCreateDtr(actor: DtrCreatorActor): boolean {
   if (canCreateDtrAnyDepartment(actor.roles)) return true;
-  return (
-    hasRole(actor.roles, "department_admin") &&
-    (actor.departmentCode ?? "").trim().toUpperCase() === DTR_CREATOR_DEPARTMENT_CODE
-  );
+  return isDeptAdmin(actor.roles) && actor.canAccessDtrCreator === true;
 }
 
 // ── Events ────────────────────────────────────────────────────────────────

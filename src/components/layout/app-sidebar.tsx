@@ -284,10 +284,16 @@ const navGroups: NavGroup[] = [
         title: "DTR Creator",
         href: "/dtr-creator",
         icon: CalendarPlus,
-        // The role list is the ceiling; canCreateDtr narrows department_admin
-        // down to the CHO admin office (src/lib/auth-helpers.ts). Same call the
-        // page makes before redirecting.
-        roles: ["super_admin", "dtr_manager", "department_admin"],
+        // The role list is the ceiling; canCreateDtr narrows the dept-admin
+        // roles down to accounts with the DTR Creator switch ticked in
+        // /admin/users (src/lib/auth-helpers.ts). Same call the page makes
+        // before redirecting.
+        roles: [
+          "super_admin",
+          "dtr_manager",
+          "department_admin",
+          "department_admin_and_department_head",
+        ],
         visible: (user) => !!user && canCreateDtr(user),
       },
     ],

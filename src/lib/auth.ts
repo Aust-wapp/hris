@@ -20,13 +20,13 @@ export interface ServerUser {
    */
   roles: UserRole[];
   departmentId: string | null;
-  /** The code of `departmentId` (e.g. "CHO") — see canCreateDtr. */
-  departmentCode: string | null;
   isActive: boolean;
   /** Department Admin only — see canOpenAttendanceCorrections. */
   canAccessAttendanceCorrections: boolean;
   /** Module managers only — see canManageJobOrderPayroll. */
   canManageModulePayroll: boolean;
+  /** Department Admin only — see canCreateDtr. Missing reads as off. */
+  canAccessDtrCreator: boolean;
   avatarUrl: string | null;
 }
 
@@ -45,7 +45,7 @@ export async function getServerUser(): Promise<ServerUser | null> {
     .schema("hris")
     .from("user_profiles")
     .select(
-      "id, email, full_name, role, roles, department_id, is_active, can_access_attendance_corrections, can_manage_module_payroll, avatar_url, departments(code)",
+      "id, email, full_name, role, roles, department_id, is_active, can_access_attendance_corrections, can_manage_module_payroll, can_access_dtr_creator, avatar_url",
     )
     .eq("email", authUser.email)
     .maybeSingle();
@@ -61,15 +61,11 @@ export async function getServerUser(): Promise<ServerUser | null> {
     // scalar) still answers every grant check through its single role.
     roles: normalizeRoles(profile.roles, profile.role),
     departmentId: profile.department_id,
-    // PostgREST returns a to-one embed as an object; the untyped admin client
-    // cannot know that, hence the cast.
-    departmentCode:
-      (profile.departments as unknown as { code: string | null } | null)?.code ??
-      null,
     isActive: profile.is_active,
     canAccessAttendanceCorrections:
       profile.can_access_attendance_corrections ?? true,
     canManageModulePayroll: profile.can_manage_module_payroll ?? true,
+    canAccessDtrCreator: profile.can_access_dtr_creator === true,
     avatarUrl: profile.avatar_url,
   };
 }

@@ -13,10 +13,11 @@
 // Days that already have a record are skipped and reported, never overwritten.
 //
 // Access is canCreateDtr (src/lib/auth-helpers.ts): DTR Managers and Super
-// Admins for any department, the CHO admin office for CHO only. The CHO office
-// applies on save like the reviewer roles do — that was the decision for this
-// module — but its DATES stay inside the same payroll-month window its
-// corrections are held to.
+// Admins for any department, and Department Admins whose account has the DTR
+// Creator switch on (migration 111) for their own department only. Those
+// Department Admins apply on save like the reviewer roles do — that was the
+// decision for this module — but their DATES stay inside the same
+// payroll-month window their corrections are held to.
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";

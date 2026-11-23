@@ -4,8 +4,8 @@
 //   - dtrBatchSchema (src/lib/validations/dtr-creator-schema.ts)
 //
 // The access rule matters most: the TypeScript guard is the only thing that
-// keeps every Department Admin except CHO's out of a module that applies
-// attendance with no approval step.
+// keeps a Department Admin without the DTR Creator switch out of a module that
+// applies attendance with no approval step.
 //
 // Requires Node >= 22 for --experimental-strip-types.
 // Run: npm run test:dtr
@@ -23,42 +23,36 @@ import { dtrBatchSchema } from "../../src/lib/validations/dtr-creator-schema.ts"
 
 test("super_admin and dtr_manager may create DTRs for any department", () => {
   for (const role of ["super_admin", "dtr_manager"] as const) {
-    assert.equal(canCreateDtr({ roles: [role], departmentCode: null }), true);
+    assert.equal(canCreateDtr({ roles: [role] }), true);
+    assert.equal(canCreateDtr({ roles: [role], canAccessDtrCreator: false }), true);
     assert.equal(canCreateDtrAnyDepartment([role]), true);
   }
 });
 
-test("a CHO department_admin may create DTRs, held to its department", () => {
-  const actor = { roles: ["department_admin"] as const, departmentCode: "CHO" };
-  assert.equal(canCreateDtr(actor), true);
-  assert.equal(canCreateDtrAnyDepartment(actor.roles), false);
+test("a department admin with the switch on may, held to its department", () => {
+  for (const role of ["department_admin", "department_admin_and_department_head"] as const) {
+    const actor = { roles: [role], canAccessDtrCreator: true };
+    assert.equal(canCreateDtr(actor), true, role);
+    assert.equal(canCreateDtrAnyDepartment(actor.roles), false, role);
+  }
 });
 
-test("the CHO code is matched case- and whitespace-insensitively", () => {
-  assert.equal(canCreateDtr({ roles: ["department_admin"], departmentCode: " cho " }), true);
-});
-
-test("a department_admin of any other department may not", () => {
-  assert.equal(canCreateDtr({ roles: ["department_admin"], departmentCode: "CTO" }), false);
-  assert.equal(canCreateDtr({ roles: ["department_admin"], departmentCode: null }), false);
+test("a department admin with the switch off, or unset, may not", () => {
+  assert.equal(canCreateDtr({ roles: ["department_admin"], canAccessDtrCreator: false }), false);
+  assert.equal(canCreateDtr({ roles: ["department_admin"], canAccessDtrCreator: null }), false);
   assert.equal(canCreateDtr({ roles: ["department_admin"] }), false);
 });
 
-test("hr_admin, the combined admin+head role and dept heads in CHO may not", () => {
-  for (const role of [
-    "hr_admin",
-    "department_admin_and_department_head",
-    "department_head",
-    "ocm_admin",
-    "employee",
-  ] as const) {
-    assert.equal(canCreateDtr({ roles: [role], departmentCode: "CHO" }), false, role);
+test("the switch grants nothing to roles it does not qualify", () => {
+  for (const role of ["hr_admin", "department_head", "ocm_admin", "employee"] as const) {
+    assert.equal(canCreateDtr({ roles: [role], canAccessDtrCreator: true }), false, role);
   }
 });
 
 test("multi-role: any granting role is enough", () => {
+  assert.equal(canCreateDtr({ roles: ["employee", "dtr_manager"] }), true);
   assert.equal(
-    canCreateDtr({ roles: ["employee", "dtr_manager"], departmentCode: "CTO" }),
+    canCreateDtr({ roles: ["employee", "department_admin"], canAccessDtrCreator: true }),
     true,
   );
 });

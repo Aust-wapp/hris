@@ -53,6 +53,10 @@ export const userFormSchema = z.object({
   // same treatment as the corrections switch above. See migration 077 and
   // canManageJobOrderPayroll in src/lib/auth-helpers.ts.
   can_manage_module_payroll: z.boolean(),
+  // Department Admin roles only, like the corrections switch — but stored as
+  // FALSE for every other account, since it grants rather than restricts. See
+  // migration 111 and canCreateDtr.
+  can_access_dtr_creator: z.boolean(),
 });
 
 export type UserFormValues = z.infer<typeof userFormSchema>;

@@ -45,6 +45,7 @@ export default async function EditUserPage({
           can_access_attendance_corrections:
             user.can_access_attendance_corrections ?? true,
           can_manage_module_payroll: user.can_manage_module_payroll ?? true,
+          can_access_dtr_creator: user.can_access_dtr_creator === true,
         }}
       />
     </div>
