@@ -620,6 +620,45 @@ export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
   );
 }
 
+// ── DTR Creator ───────────────────────────────────────────────────────────
+// Creates attendance for SEVERAL employees of one department at once, for days
+// that have no record yet. Every day it writes goes through the corrections
+// pipeline as a direct-apply request, so editing one afterwards is an ordinary
+// attendance correction.
+//
+// Who: DTR Managers and Super Admins for any department, and the admin office
+// of the City Health Office for its own staff — a Department Admin account
+// assigned to the department whose code is DTR_CREATOR_DEPARTMENT_CODE. Keyed
+// on the department CODE rather than an id so the rule survives a local reset
+// and reads the same in every environment. Deliberately plain
+// "department_admin": the combined Department Admin + Head role is not named.
+const DTR_CREATOR_ANY_DEPARTMENT_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "dtr_manager",
+] as const;
+
+export const DTR_CREATOR_DEPARTMENT_CODE = "CHO";
+
+export interface DtrCreatorActor {
+  roles: RoleInput;
+  /** The code of the account's own department (user_profiles.department_id). */
+  departmentCode?: string | null;
+}
+
+/** May pick any department in the DTR Creator. */
+export function canCreateDtrAnyDepartment(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => DTR_CREATOR_ANY_DEPARTMENT_ROLES.includes(r));
+}
+
+/** May open the DTR Creator at all. Use for route and nav gating. */
+export function canCreateDtr(actor: DtrCreatorActor): boolean {
+  if (canCreateDtrAnyDepartment(actor.roles)) return true;
+  return (
+    hasRole(actor.roles, "department_admin") &&
+    (actor.departmentCode ?? "").trim().toUpperCase() === DTR_CREATOR_DEPARTMENT_CODE
+  );
+}
+
 // ── Events ────────────────────────────────────────────────────────────────
 // Roles that manage events end to end: create/edit/open/close, build rosters,
 // print QR cards, read attendance reports. Reporting is HR-only in v1 — a

@@ -44,6 +44,7 @@ import {
   PartyPopper,
   QrCode,
   UsersRound,
+  CalendarPlus,
 } from "lucide-react";
 
 import {
@@ -69,7 +70,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useUser, type AuthUser } from "@/hooks/use-user";
 import { signOut } from "@/lib/actions/auth-actions";
-import { canOpenAttendanceCorrections } from "@/lib/auth-helpers";
+import { canCreateDtr, canOpenAttendanceCorrections } from "@/lib/auth-helpers";
 import type { UserRole } from "@/lib/types";
 
 interface NavItem {
@@ -278,6 +279,16 @@ const navGroups: NavGroup[] = [
         // this is the account's own answer, and it is the same call the route
         // itself makes before redirecting.
         visible: (user) => !!user && canOpenAttendanceCorrections(user),
+      },
+      {
+        title: "DTR Creator",
+        href: "/dtr-creator",
+        icon: CalendarPlus,
+        // The role list is the ceiling; canCreateDtr narrows department_admin
+        // down to the CHO admin office (src/lib/auth-helpers.ts). Same call the
+        // page makes before redirecting.
+        roles: ["super_admin", "dtr_manager", "department_admin"],
+        visible: (user) => !!user && canCreateDtr(user),
       },
     ],
   },
