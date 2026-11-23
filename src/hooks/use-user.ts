@@ -18,8 +18,9 @@ export type AuthUser = AuthUserData;
  * and a transient miss on the second call — a token refresh racing the server
  * action, a network blip — used to drop the user to null. The sidebar then
  * fell back to the "employee" role and per-account items such as Attendance
- * Corrections appeared and then vanished. Only a real sign-out (an auth event
- * with no session) clears the user.
+ * Corrections appeared and then vanished. Only the server saying there is no
+ * user (checked on SIGNED_OUT) clears it — never the browser client's own view
+ * of the session.
  */
 export function useUser(initialUser?: AuthUser | null) {
   const [user, setUser] = useState<AuthUser | null>(initialUser ?? null);
@@ -43,14 +44,25 @@ export function useUser(initialUser?: AuthUser | null) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session) {
-        setUser(null);
-        setLoading(false);
-      } else if (event !== "INITIAL_SESSION") {
-        // INITIAL_SESSION duplicates the fetch on mount above.
-        fetchUser();
+    } = supabase.auth.onAuthStateChange((event) => {
+      // INITIAL_SESSION duplicates the fetch on mount above. It also reports the
+      // BROWSER client's view of the session, which can be empty while the
+      // server (cookies, refreshed by src/proxy.ts) still has the user signed in
+      // — clearing on it hid per-account items like Attendance Corrections.
+      if (event === "INITIAL_SESSION") return;
+
+      if (event === "SIGNED_OUT") {
+        // Ask the server before believing it. Only a definite "no user" from
+        // the server clears the sidebar; a real sign-out also redirects to
+        // /login, which unmounts this anyway.
+        getCurrentUser()
+          .then((userData) => setUser(userData))
+          .catch(() => {})
+          .finally(() => setLoading(false));
+        return;
       }
+
+      fetchUser();
     });
 
     return () => subscription.unsubscribe();
