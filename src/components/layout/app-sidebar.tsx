@@ -447,9 +447,9 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export function AppSidebar() {
+export function AppSidebar({ initialUser }: { initialUser?: AuthUser | null }) {
   const pathname = usePathname();
-  const { user, loading } = useUser();
+  const { user, loading } = useUser(initialUser);
 
   // An account holds a SET of roles (migration 087), and the sidebar is a
   // UNION: an item shows if ANY role the account holds is on its list. That

@@ -6,9 +6,24 @@ import { getCurrentUser, type AuthUserData } from "@/lib/actions/auth-actions";
 
 export type AuthUser = AuthUserData;
 
-export function useUser() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * The signed-in user for client components.
+ *
+ * `initialUser` is the user the server already resolved for this request (the
+ * dashboard layout passes it). Starting from it means the sidebar renders the
+ * right items on first paint instead of fetching them after mount.
+ *
+ * A refetch that comes back empty or throws does NOT clear a user we already
+ * hold. On load this hook fetches twice (mount + the INITIAL_SESSION event),
+ * and a transient miss on the second call — a token refresh racing the server
+ * action, a network blip — used to drop the user to null. The sidebar then
+ * fell back to the "employee" role and per-account items such as Attendance
+ * Corrections appeared and then vanished. Only a real sign-out (an auth event
+ * with no session) clears the user.
+ */
+export function useUser(initialUser?: AuthUser | null) {
+  const [user, setUser] = useState<AuthUser | null>(initialUser ?? null);
+  const [loading, setLoading] = useState(!initialUser);
 
   useEffect(() => {
     const supabase = createClient();
@@ -16,9 +31,9 @@ export function useUser() {
     async function fetchUser() {
       try {
         const userData = await getCurrentUser();
-        setUser(userData);
+        setUser((prev) => userData ?? prev);
       } catch {
-        setUser(null);
+        // Keep whatever we already have; see the note above.
       } finally {
         setLoading(false);
       }
@@ -28,11 +43,12 @@ export function useUser() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session) {
         setUser(null);
         setLoading(false);
-      } else {
+      } else if (event !== "INITIAL_SESSION") {
+        // INITIAL_SESSION duplicates the fetch on mount above.
         fetchUser();
       }
     });

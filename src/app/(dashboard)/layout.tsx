@@ -33,7 +33,7 @@ export default async function DashboardLayout({
 
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar initialUser={user} />
       {/* min-w-0: without it the inset is a flex item sized to its widest
           content, so one wide table drags the whole shell — page header,
           heading, action buttons — sideways with it. Clamped here, a wide
