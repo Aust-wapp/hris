@@ -898,10 +898,10 @@ export function CorrectionRequestForm({
                         <th className="py-2 pr-3">Date</th>
                         <th className="py-2 pr-3">Currently → after</th>
                         <th className="py-2 pr-3">Schedule</th>
-                        <th className="py-2 pr-2">AM In</th>
-                        <th className="py-2 pr-2">AM Out</th>
-                        <th className="py-2 pr-2">PM In</th>
-                        <th className="py-2 pr-2">PM Out</th>
+                        <th className="py-2 pr-2">IN 1</th>
+                        <th className="py-2 pr-2">OUT 1</th>
+                        <th className="py-2 pr-2">IN 2</th>
+                        <th className="py-2 pr-2">OUT 2</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -912,7 +912,7 @@ export function CorrectionRequestForm({
                           day.day_of_week === 0 || day.day_of_week === 6;
                         // The two middle slots exist only for a shift with a
                         // break window; for a straight-through shift the single
-                        // in/out lives in AM In / PM Out, which is exactly what
+                        // in/out lives in IN 1 / OUT 2, which is exactly what
                         // bucketPunchesForDuty and undertimeMinutesFor read.
                         const rowHasBreak = hasBreak(scheduleFor(d.scheduleId));
                         const slots = [
@@ -1016,8 +1016,8 @@ export function CorrectionRequestForm({
                               <td key={timeKey} className="py-3 pr-2">
                                 <div className="space-y-1">
                                   {/* On a straight-through shift the column
-                                      headings (AM In / PM Out) describe halves
-                                      of a day that has none — the two punches
+                                      headings (IN 1 / OUT 2) describe pairs
+                                      around a break it lacks — the two punches
                                       are simply the arrival and the departure. */}
                                   {!rowHasBreak && (
                                     <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1076,8 +1076,8 @@ export function CorrectionRequestForm({
                 <p className="text-xs text-muted-foreground">
                   Each slot takes either a time or a reason: pick a reason and
                   the time box goes away, pick <strong>Set time</strong> to bring
-                  it back. <strong>ABSENT</strong> fills its pair as well (AM In
-                  with AM Out, PM In with PM Out) and that session is charged as
+                  it back. <strong>ABSENT</strong> fills its pair as well (IN 1
+                  with OUT 1, IN 2 with OUT 2) and that session is charged as
                   an absence. <strong>OFF</strong> on a day&apos;s slots marks it
                   off — use it for the day a night shift empties out.{" "}
                   <strong>NO BREAK</strong> is for a day worked straight through
