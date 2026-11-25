@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { commandSubstringFilter } from "@/lib/command-filter";
+import { scheduleOptions } from "@/lib/correction-draft";
 import {
   clearScheduleOverride,
   getScheduleCalendar,
@@ -63,10 +64,6 @@ function shortTime(t: string) {
   const suffix = h >= 12 ? "p" : "a";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}${m ? `:${String(m).padStart(2, "0")}` : ""}${suffix}`;
-}
-
-function scheduleLabel(s: Pick<ScheduleRow, "time_in" | "time_out">) {
-  return `${shortTime(s.time_in)}–${shortTime(s.time_out)}`;
 }
 
 function resortMessage(r: ResortSummary): string {
@@ -129,6 +126,12 @@ export function ScheduleCalendar({
   const [scheduleId, setScheduleId] = useState<string>("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Same hours-only list as the attendance correction form.
+  const { all: scheduleItems, choices: scheduleChoices } = useMemo(
+    () => scheduleOptions(schedules),
+    [schedules],
+  );
 
   const employee = employees.find((e) => e.id === employeeId);
 
@@ -358,7 +361,7 @@ export function ScheduleCalendar({
             </RadioGroup>
             {mode === "schedule" && (
               <Select
-                items={Object.fromEntries(schedules.map((s) => [s.id, `${s.name} (${scheduleLabel(s)})`]))}
+                items={scheduleItems}
                 value={scheduleId || null}
                 onValueChange={(v) => setScheduleId((v as string) ?? "")}
               >
@@ -366,9 +369,9 @@ export function ScheduleCalendar({
                   <SelectValue placeholder="Choose a schedule" />
                 </SelectTrigger>
                 <SelectContent>
-                  {schedules.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} ({scheduleLabel(s)})
+                  {scheduleChoices.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
