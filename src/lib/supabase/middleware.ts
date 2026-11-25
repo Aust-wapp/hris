@@ -63,10 +63,10 @@ export async function updateSession(request: NextRequest) {
     // to /scan without a second lookup.
     let isChecker = false;
 
-    if (user.email && process.env.NEXT_PUBLIC_SERVICE_ROLE_KEY) {
+    if (user.email && process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const admin = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SERVICE_ROLE_KEY
+        process.env.SUPABASE_SERVICE_ROLE_KEY
       );
       const { data: profile, error: profileError } = await admin
         .schema("hris")
